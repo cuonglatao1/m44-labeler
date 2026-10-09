@@ -16,6 +16,7 @@ from m44.geometry import project_frame
 from m44.match import DEFAULT_CFG, check, load_cfg
 
 from . import assistant, lidar_qc, track
+from .qc import rank_flags
 from .dataset import Dataset
 from .fix import suggest
 from .export import to_nuscenes
@@ -122,8 +123,7 @@ def _run_check(i: int, boxes: list[dict], pilot: str | None = None, assist: bool
             _, cam, bbox = best.get(f['box_id'], (0, None, None))
             flags.append({'sample': frame['sample'], 'cam': cam, 'cls_2d': None, 'iou': None, 'p_bbox': bbox,
                           'det_bbox': None, 'source': src, **f})
-    for k, f in enumerate(flags):
-        f['flag_id'] = f'F{k:04d}'
+    flags = rank_flags(flags)  # certainty (sources agreeing on the cuboid), sure-first, renumbered
 
     matched = {m['box_id'] for m in matches}
     flagged = {(f['source'], f['box_id']) for f in flags if f.get('box_id')}

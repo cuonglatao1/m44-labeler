@@ -5,7 +5,7 @@ import {
   Undo2, UserRound,
 } from 'lucide-react'
 import { api, chatStream, config as fetchConfig, resetChat, suggestFix } from './api.js'
-import { CLASSES, CLASS_COLORS, CLASS_SIZES, COLORS, boxColor, boxStatus, groundZ, projectBox } from './geometry.js'
+import { CLASSES, CLASS_COLORS, CLASS_SIZES, COLORS, applyVerdicts, boxColor, boxStatus, groundZ, projectBox } from './geometry.js'
 import BevView from './BevView.jsx'
 import CameraView from './CameraView.jsx'
 import SideView from './SideView.jsx'
@@ -234,8 +234,10 @@ export default function App() {
   }, [index, load])
 
   // ---------- derived ----------
-  const status = useMemo(() => (ASSIST ? boxStatus(check) : {}), [check])
   const visible = useCallback((f) => feedback[flagKey(f)] !== 'false_alarm', [feedback])
+  // what the reviewer sees everywhere (summary, colours, inspector): the check minus the flags marked false alarm
+  const reviewed = useMemo(() => applyVerdicts(check, (f) => !visible(f)), [check, visible])
+  const status = useMemo(() => (ASSIST ? boxStatus(reviewed) : {}), [reviewed])
   const flags = useMemo(() => (!ASSIST ? [] : showDismissed ? check.flags : check.flags.filter(visible)),
     [check, visible, showDismissed])
   const proj = useMemo(() => {
@@ -635,7 +637,7 @@ export default function App() {
                   </div>
                 ))}
               </div>
-              <FrameSummary boxes={boxes} qc={check.qc} coverage={check.coverage} assist={ASSIST} nDets={frame.dets.length} />
+              <FrameSummary boxes={boxes} qc={reviewed.qc} coverage={check.coverage} assist={ASSIST} nDets={frame.dets.length} />
             </>
           )}
         </section>
@@ -668,7 +670,7 @@ export default function App() {
         ) : (
           <ObjectsPanel boxes={boxes} status={status} selected={selected} onSelect={selectBox} onDelete={deleteBox} assist={ASSIST} />
         )}
-        {sel && tab !== 'assistant' && <Inspector box={sel} status={status} qc={check.qc?.[sel.box_id]} flags={selFlags} assist={ASSIST} onEdit={editSelected}
+        {sel && tab !== 'assistant' && <Inspector box={sel} status={status} qc={reviewed.qc?.[sel.box_id]} flags={selFlags} assist={ASSIST} onEdit={editSelected}
           onDelete={() => deleteBox(sel.box_id)} onClose={() => { setSelected(null); setActiveFlag(null) }} />}
       </aside>
 

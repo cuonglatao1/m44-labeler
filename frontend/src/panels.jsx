@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Camera, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDashed, Eye, EyeOff, FlipHorizontal2, History, Inbox, Info, Radar,
-  ShieldCheck, Sparkles, Trash2, Wand2, X,
+  ShieldAlert, ShieldCheck, Sparkles, Trash2, Wand2, X,
 } from 'lucide-react'
 import { CLASSES, CLASS_COLORS } from './geometry.js'
 
@@ -139,11 +139,21 @@ export function IssuesPanel({ flags: allShown, allFlags, feedback, activeFlag, o
           <div className="empty"><span className="empty-icon"><ShieldCheck size={24} className="st-ok" /></span>
             <div>{src === 'all' ? 'Không còn cờ: mọi cuboid kiểm được đều ổn.' : `Không có cờ ${SOURCE[src].label}.`}</div></div>
         )}
-        {flags.map((f) => {
+        {flags.map((f, i) => {
           const verdict = feedback[flagKey(f)]
           const on = f.flag_id === activeFlag
-          return (
-            <div key={f.flag_id} ref={on ? activeRef : null} className={`row flag-row ${on ? 'on' : ''} ${verdict === 'false_alarm' ? 'dim' : ''}`}
+          const sure = f.certainty === 'high'
+          const head = (i === 0 || flags[i - 1].certainty !== f.certainty) && f.certainty && (
+            <div key={`h-${f.certainty}`} className={`flag-group ${sure ? 'sure' : ''}`}>
+              {sure ? <ShieldAlert size={14} /> : <Eye size={14} />}
+              <b>{sure ? 'Chắc chắn' : 'Cần xem'}</b>
+              <span className="count">{flags.filter((g) => g.certainty === f.certainty).length}</span>
+              <span className="hint">{sure ? '≥ 2 nguồn cùng báo – gần như chắc chắn sai, sửa trước'
+                : '1 nguồn – xem bằng chứng trước khi sửa, có thể là báo động giả'}</span>
+            </div>
+          )
+          return [head,
+            <div key={f.flag_id} ref={on ? activeRef : null} className={`row flag-row ${sure ? 'sure' : ''} ${on ? 'on' : ''} ${verdict === 'false_alarm' ? 'dim' : ''}`}
               onClick={() => onPick(f)} style={{ '--bar': f.type === 'MISSING_3D' ? 'var(--missing)' : 'var(--danger)' }}>
               <div className="flag-line">
               <span className={`badge ${f.type}`}>{FLAG_LABEL[f.type] || f.type}</span>
@@ -163,8 +173,10 @@ export function IssuesPanel({ flags: allShown, allFlags, feedback, activeFlag, o
               </span>
               </div>
               {on && f.msg && <div className="flag-msg">{f.msg}</div>}
-            </div>
-          )
+              {on && sure && f.sources?.length > 1 && (
+                <div className="flag-msg">Cuboid này bị {f.sources.map((s) => SOURCE[s].label).join(' + ')} cùng gắn cờ.</div>
+              )}
+            </div>]
         })}
       </div>
     </>

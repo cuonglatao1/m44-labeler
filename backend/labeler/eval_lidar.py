@@ -26,6 +26,7 @@ from .calib_lidar import frames_by_scene
 from .eval_fix import apply
 from .fix import suggest
 from .propose import Sweep
+from .qc import rank_flags
 from .score import same_object
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +42,7 @@ def run(frames, k, sweep, cfg, lqc, gt_inst, nb, dets) -> dict:
     lf, li = lidar_qc.lidar_check(f['boxes'], sweep, lqc)
     tf, ti = track.track_check(f, f['boxes'], [(frames[j], frames[j]['boxes']) for j in nb[k]], gt_inst, lqc['track'])
     flags += [{**x, 'source': 'lidar', 'cam': None} for x in lf] + [{**x, 'source': 'track', 'cam': None} for x in tf]
+    flags = rank_flags(flags)
     cam_ok = {m['box_id'] for m in matches} | {x['box_id'] for x in flags if x['source'] == 'camera' and x['box_id']}
     covered = {b['box_id']: {'camera': b['box_id'] in cam_ok, 'lidar': li[b['box_id']]['checked'],
                              'track': ti[b['box_id']]['checked']} for b in f['boxes']}
@@ -84,6 +86,7 @@ def main():
     cover_hard = Counter()              # same, among cuboids the camera cannot judge
     fixes = defaultdict(Counter)        # source -> flagged errors with a suggestion / fixed
     harm = Counter()
+    sure = Counter()                    # certainty: flags on clean GT, on corrupted / untouched cuboids, errors caught
     n_boxes = n_hard = 0
     for k, (fc, fn) in enumerate(zip(clean, noisy)):
         p = ROOT / 'cache' / 'dets' / f"{fc['sample']}.json"
@@ -94,6 +97,11 @@ def main():
 
         for x in rc['flags']:
             fa[(x['source'], x['type'])] += 1
+            sure[f"clean_{x['certainty']}"] += 1
+        for x in rn['flags']:
+            if x.get('box_id'):
+                bad = (fn['sample'], x['box_id']) in err
+                sure[f"{x['certainty']}_{'error' if bad else 'ok'}"] += 1
         for src in SOURCES:
             fa_boxes[src] += len({x['box_id'] for x in rc['flags'] if x['source'] == src and x['box_id']})
         fa_boxes['any'] += len({x['box_id'] for x in rc['flags'] if x['box_id']})
@@ -124,6 +132,7 @@ def main():
                 c[src] += src in srcs
             c['lidar+track'] += bool(srcs & {'lidar', 'track'})
             c['all'] += bool(srcs)
+            c['sure'] += len(srcs) >= 2
             # apply the suggestion of the first LiDAR / temporal flag on the error
             for src in ('track', 'lidar'):
                 fl = next((x for x in by_box[bid] if x['source'] == src), None)
@@ -176,6 +185,15 @@ def main():
         c = fixes[src]
         acts = ', '.join(f'{k} {v}' for k, v in c.items() if k not in ('flagged', 'fixed'))
         print(f"  {src:<6} {c['fixed']}/{c['flagged']} fixed ({pct(c['fixed'], c['flagged'])})   {acts}")
+    print('\nCertainty (labeler/qc.py: high = flagged by >= 2 sources)')
+    for lv, name in (('high', 'sure  '), ('review', 'review')):
+        n_err, n_ok = sure[f'{lv}_error'], sure[f'{lv}_ok']
+        print(f"  {name}: on corrupted data {n_err + n_ok} cuboid flags, {pct(n_err, n_err + n_ok)} on a real error; "
+              f"on clean GT {sure[f'clean_{lv}'] / nf:.2f} flags / frame")
+    tot = Counter()
+    for c in caught.values():
+        tot.update(c)
+    print(f"  errors caught by a sure flag: {pct(tot['sure'], tot['n'])} (any flag: {pct(tot['all'], tot['n'])})")
     acts = ', '.join(f'{k} {v}' for k, v in harm.items() if k not in ('flags', 'broken'))
     print(f"  on false alarms: {harm['flags']} suggestions ({acts}); applying them would break {harm['broken']} "
           f"({pct(harm['broken'], harm['flags'])})")
@@ -185,7 +203,8 @@ def main():
             'coverage_camera_blind': {**cover_hard, 'n': n_hard},
             'false_alarms': {f'{s}/{t}': v for (s, t), v in fa.items()},
             'recall': {f'{g}/{e}': dict(c) for (g, e), c in caught.items()},
-            'fixes': {s: dict(c) for s, c in fixes.items()}, 'harm': dict(harm)}, indent=1), encoding='utf-8')
+            'fixes': {s: dict(c) for s, c in fixes.items()}, 'harm': dict(harm), 'certainty': dict(sure)}, indent=1),
+            encoding='utf-8')
 
 
 if __name__ == '__main__':

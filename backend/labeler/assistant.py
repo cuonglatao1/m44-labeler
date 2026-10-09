@@ -36,6 +36,8 @@ kích thước hoặc sai hướng), CLASS_MISMATCH (class cuboid khác class YO
 trên ảnh – có thể cuboid thừa, đặt sai chỗ, hoặc vật bị che/tối/xa), MISSING_3D (YOLO thấy vật mà chưa có cuboid).
 - Cuboid camera không kiểm được (bị che, xa, class YOLO không nhận) được kiểm bằng LiDAR (source "lidar"): LIDAR_EMPTY (tia LiDAR xuyên thẳng qua cuboid, gần như không chạm vật – cuboid thừa/dời chỗ), LIDAR_FREE (nhiều tia xuyên qua – cuboid lấn khoảng trống: quá to/lệch), LIDAR_SPILL (điểm của vật tràn ra ngoài – quá nhỏ/lệch), LIDAR_HEADING (trục dài đám điểm lệch hướng cuboid), SIZE_IMPLAUSIBLE (kích thước ngoài khoảng thường gặp của class), FLOATING/SUNKEN (đáy lơ lửng/chìm so với mặt đất), BEV_OVERLAP (hai cuboid chồng nhau). Tia bị vật khác chắn phía trước được tính là "bị che", không phải bằng chứng cuboid sai.
 - Và bằng thời gian (source "track", so với chính vật đó ở các frame trước/sau): TRACK_SIZE (kích thước lệch trung vị chuỗi), TRACK_JUMP (vị trí lệch quỹ đạo), TRACK_YAW (hướng lệch, kể cả quay ngược 180°), TRACK_CLASS (class khác các frame khác). Mỗi cờ loại này có trường msg giải thích bằng số liệu.
+- Mỗi cờ có certainty: "high" = cuboid bị từ 2 nguồn trở lên cùng báo (gần như chắc chắn sai, xử lý trước), \
+"review" = chỉ một nguồn báo (cần xem bằng chứng trước khi sửa, có thể là báo động giả).
 - Mỗi cuboid có mức tin cậy QC: high (≥2 nguồn camera/LiDAR/thời gian xác nhận), medium (1 nguồn), none (chưa nguồn nào kiểm được), flagged (có cờ).
 - Cờ là gợi ý, không phải phán quyết: YOLO có thể sai, vật có thể bị che. Annotator xác nhận bằng nút ✓ (đúng là lỗi) \
 hoặc ✗ (báo động giả).
@@ -152,6 +154,7 @@ class Context:
             by_cls[b['cls']] = by_cls.get(b['cls'], 0) + 1
         flags = [{'flag_id': f'F{k}', 'type': f['type'], 'source': f.get('source', 'camera'), 'box_id': f.get('box_id'),
                   'cls_3d': f.get('cls_3d'), 'cls_2d': f.get('cls_2d'), 'cam': f['cam'], 'iou': f.get('iou'),
+                  'certainty': f.get('certainty'),
                   **({'msg': f['msg']} if f.get('msg') else {})} for k, f in enumerate(self.flags)]
         levels: dict[str, int] = {}
         for q in self.qc.values():
@@ -191,7 +194,8 @@ class Context:
             return {'error': f'không có cờ {flag_id}; gọi get_frame_overview để lấy danh sách'}, None
         s = suggest(flag, self.boxes, self.frame, self.dets, self.sweep, self.cfg)
         s = {**s, 'id': uuid.uuid4().hex[:8],
-             'flag': {k: flag.get(k) for k in ('type', 'box_id', 'cam', 'det_bbox', 'cls_2d', 'iou', 'source')}}
+             'flag': {k: flag.get(k) for k in ('type', 'box_id', 'cam', 'det_bbox', 'cls_2d', 'iou', 'source',
+                                                'certainty', 'sources')}}
         return s, s
 
     def run(self, name: str, args) -> tuple[dict, dict | None, bool]:

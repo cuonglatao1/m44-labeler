@@ -28,8 +28,27 @@ export function boxColor(box, status, colorBy, selected) {
   return CLASS_COLORS[box.cls] || COLORS.unchecked
 }
 
+// The check with the reviewer's verdicts applied: flags marked false alarm (✗) are dropped, and a source whose every
+// flag on a cuboid was dismissed counts as checked and fine; the QC level is recomputed from what is left.
+export function applyVerdicts(check, dismissed) {
+  const active = check.flags.filter((f) => !dismissed(f))
+  const flaggedBy = {}
+  for (const f of active) if (f.box_id) (flaggedBy[f.box_id] ||= new Set()).add(f.source || 'camera')
+  const qc = {}
+  for (const [id, q] of Object.entries(check.qc || {})) {
+    const st = {}
+    for (const s of ['camera', 'lidar', 'track']) {
+      st[s] = flaggedBy[id]?.has(s) ? 'flagged' : q[s] === 'flagged' ? 'ok' : q[s]
+    }
+    const nOk = Object.values(st).filter((v) => v === 'ok').length
+    const level = Object.values(st).includes('flagged') ? 'flagged' : nOk >= 2 ? 'high' : nOk ? 'medium' : 'none'
+    qc[id] = { ...q, ...st, level }
+  }
+  return { ...check, flags: active, qc }
+}
+
 // box_id -> 'flagged' | 'ok' | 'unchecked': any flag (camera, LiDAR or temporal) = flagged; verified by at least one
-// source = ok (backend qc levels high / medium)
+// source = ok (qc levels high / medium)
 export function boxStatus(check) {
   const status = {}
   for (const m of check.matches) status[m.box_id] = 'ok'

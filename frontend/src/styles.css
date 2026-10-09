@@ -570,3 +570,14 @@ kbd {
 .cov.track svg { color: var(--track); }
 .cov.total { margin-left: auto; border-color: rgba(52, 211, 153, 0.25); }
 .cov.total b { color: var(--ok); }
+
+/* flag certainty (labeler/qc.py) */
+.flag-group {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 10px 6px 6px; font-size: 12px; color: var(--text-2);
+}
+.flag-group b { font-weight: 600; color: var(--text); }
+.flag-group.sure svg, .flag-group.sure b { color: var(--danger); }
+.flag-group .hint { flex-basis: 100%; color: var(--text-3); font-size: 11.5px; }
+.row.flag-row.sure { background: rgba(251, 113, 133, 0.05); }
+.btn.pulse { border-color: var(--accent-line); color: #a9c1ff; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--accent-soft); } }

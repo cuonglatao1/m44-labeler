@@ -31,15 +31,29 @@ function Rich({ text }) {
   return <>{blocks}</>
 }
 
+// a fix for a flag from one source only (certainty 'review') is applied only after looking at it: blind application on
+// a false alarm breaks the correct cuboid about 2 times in 3 (labeler/eval_lidar.py)
 function SuggestionCard({ s, previewing, applied, onPreview, onApply }) {
   const a = ACTION[s.action] || ACTION.none
   const Icon = a.icon
   const canPreview = s.action === 'update' || s.action === 'create'
+  const [looked, setLooked] = useState(false)
+  const review = s.flag?.certainty === 'review'
+  const locked = review && canPreview && !looked && !previewing
+  const apply = () => {
+    if (review && s.action === 'delete' && !window.confirm('Cờ này chỉ do một nguồn báo. Vẫn xoá cuboid? (Ctrl+Z để hoàn tác)')) return
+    onApply()
+  }
   return (
     <div className={`sugg ${s.action}`}>
       <div className="sugg-head"><span className="sugg-icon"><Icon size={14} /></span>{a.title}
         {s.confidence && <span className={`chip ${s.confidence === 'high' ? 'ok' : 'warn'}`} style={{ height: 20, fontSize: 11 }}>
-          tin cậy {s.confidence === 'high' ? 'cao' : 'thấp'}</span>}
+          gợi ý {s.confidence === 'high' ? 'tin cậy cao' : 'tin cậy thấp'}</span>}
+        {s.flag?.certainty && (
+          <span className={`chip ${s.flag.certainty === 'high' ? 'danger' : ''}`} style={{ height: 20, fontSize: 11 }}
+            title={s.flag.certainty === 'high' ? 'Cuboid bị từ 2 nguồn trở lên cùng gắn cờ' : 'Chỉ một nguồn gắn cờ'}>
+            {s.flag.certainty === 'high' ? 'cờ chắc chắn' : 'cờ cần xem'}</span>
+        )}
         {s.flag?.cam && <span className="sugg-cam">{s.flag.cam.replace('CAM_', '').replace('_', ' ')}</span>}</div>
       <div className="sugg-body">{s.summary}</div>
       {(s.before?.fit_iou != null || s.after?.fit_iou != null || s.after?.pass != null) && (
@@ -58,11 +72,13 @@ function SuggestionCard({ s, previewing, applied, onPreview, onApply }) {
       {a.apply && (
         <div className="sugg-actions">
           {canPreview && !applied && (
-            <button className="btn sm" onClick={onPreview}>{previewing ? <EyeOff size={13} /> : <Eye size={13} />}{previewing ? 'Ẩn xem trước' : 'Xem trước'}</button>
+            <button className={`btn sm ${locked ? 'pulse' : ''}`} onClick={() => { setLooked(true); onPreview() }}>
+              {previewing ? <EyeOff size={13} /> : <Eye size={13} />}{previewing ? 'Ẩn xem trước' : 'Xem trước'}</button>
           )}
           <span className="grow" />
           {applied ? <span className="chip ok"><Check size={12} /> Đã áp dụng</span>
-            : <button className="btn sm primary" onClick={onApply}>{a.apply}</button>}
+            : <button className="btn sm primary" onClick={apply} disabled={locked}
+              title={locked ? 'Cờ một nguồn: bấm Xem trước để kiểm tra trên BEV và ảnh rồi mới áp dụng' : undefined}>{a.apply}</button>}
         </div>
       )}
     </div>

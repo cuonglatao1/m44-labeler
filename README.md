@@ -188,6 +188,17 @@ frame, LiDAR 2,93 / frame (nhiều nhất `LIDAR_EMPTY` 1,3 / frame – xe tối
 thời gian 0,07 / frame. Gợi ý sửa: theo thời gian đúng 92 % lỗi bị cờ, theo LiDAR 48 %; áp dụng gợi ý lên cờ báo động
 giả sẽ làm hỏng cuboid đúng ~2/3 số lần → luôn **Xem trước**, hoặc bấm ✗.
 
+**Mức chắc chắn của cờ** (`backend/labeler/qc.py`). Ba nguồn là bằng chứng độc lập, nên tab Kiểm tra chia cờ thành hai
+nhóm, nhóm chắc chắn đứng trước (N / P cũng đi theo thứ tự này):
+
+| nhóm | quy tắc | cờ trên dữ liệu có lỗi trúng lỗi thật | báo động giả trên GT sạch | lỗi bắt được |
+|---|---|---|---|---|
+| **Chắc chắn** | cuboid bị ≥ 2 nguồn cùng gắn cờ | 98 % | 0,14 / frame | 64 % |
+| **Cần xem** | chỉ 1 nguồn | 45 % | 5,35 / frame | thêm 35 % (tổng 99 %) |
+
+(val, cùng lần đo ở trên; nối chỉ bằng vị trí: 95 % / 0,21 / 48 %.) Với cờ **cần xem**, nút **Áp dụng** của gợi ý dời /
+co giãn / tạo cuboid bị khoá cho tới khi bấm **Xem trước**; xoá cuboid thì phải xác nhận. Cờ chắc chắn áp dụng được ngay.
+
 Giới hạn, nói thẳng khi trình bày: (1) recall thời gian ở trên dùng `instance_token` của GT; nối cuboid chỉ bằng vị trí
 (như khi tự vẽ, `--no-instance`) thì thời gian còn 71 % (dời chỗ 71 %, đổi class 23 % vì xe ↔ người không nối được), báo
 động giả 0,85 / frame, LiDAR + thời gian vẫn 92 %. (2) Lỗi cài là lỗi tổng hợp; LiDAR chỉ bắt được vật có điểm (54 %
