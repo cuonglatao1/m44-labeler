@@ -5,6 +5,11 @@ chcp 65001 >nul
 rem Chay M44 Labeler: backend (cong 8770) phuc vu ca giao dien da build (frontend\dist).
 cd /d "%~dp0"
 if not defined NUSC_ROOT if not exist "data\nuscenes" if exist "D:\data\nuscenes" set NUSC_ROOT=D:\data\nuscenes
+if not defined NUSC_ROOT if exist "data\nuscenes" set NUSC_ROOT=%~dp0data\nuscenes
+if not defined NUSC_ROOT (echo [LOI] Khong thay nuScenes-mini ^(data\nuscenes hoac D:\data\nuscenes^) - xem docs\HUONG_DAN_CAI_DAT.md & pause & exit /b 1)
+if not exist "%NUSC_ROOT%\v1.0-mini" (echo [LOI] %NUSC_ROOT% khong co thu muc v1.0-mini - giai nen chua dung? Xem docs\HUONG_DAN_CAI_DAT.md & pause & exit /b 1)
+if not exist ".venv\Scripts\python.exe" (echo [LOI] Chua cai dat - bam dup setup_windows.bat truoc & pause & exit /b 1)
+if not exist "cache\dets" (pushd backend & "..\.venv\Scripts\python.exe" -m labeler.precompute --bundled & popd)
 if not exist "frontend\dist\index.html" (
   echo Build giao dien lan dau...
   pushd frontend && call npm install && call npm run build && popd

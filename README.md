@@ -21,20 +21,24 @@ frontend/       React + Vite + react-three-fiber: BEV point cloud, 6 camera, dan
 configs/        tuned.json – ngưỡng của checker camera (đổi bằng biến môi trường M44_CFG);
                 lidar_qc.json – ngưỡng LiDAR / thời gian (labeler/calib_lidar.py)
 cache/          dets/<sample>.json (YOLO), labels.db (nhãn đã lưu + log) – không commit
+precomputed/    yolo_dets_nuscenes_mini.json.gz – YOLO của 404 frame mini, nạp bằng precompute --bundled
 tests/          test chiếu / loader chép từ repo cũ; test_lidar_qc.py (sweep tổng hợp, chạy bằng python)
 ```
 
 ## Chạy (Windows)
 
-1. Cài Python 3.11 và Node.js 20+, bấm đúp `setup_windows.bat`.
-2. nuScenes-mini để ở `data\nuscenes` (hoặc đặt `NUSC_ROOT`; `run_app.bat` tự dùng `D:\data\nuscenes` nếu có).
-3. Nạp cache YOLO – lấy lại kết quả đã chạy ở repo M44 (nhanh, không cần torch):
-   ```
-   cd backend
-   ..\.venv\Scripts\python.exe -m labeler.precompute --import-json D:\m44-consistency-checker\out\mini_val\det_2d.json D:\m44-consistency-checker\out\mini_train\det_2d.json
-   ```
-   hoặc chạy YOLO mới: `pip install -r requirements-detect.txt` rồi `python -m labeler.precompute --split all`.
-4. `run_app.bat` → <http://localhost:8770>. Khi sửa code: `run_dev.bat` (giao diện ở <http://localhost:5173>).
+**Người mới trong nhóm: làm theo [docs/HUONG_DAN_CAI_DAT.md](docs/HUONG_DAN_CAI_DAT.md)** (cài Python + Node, tải
+nuScenes-mini, bấm đúp hai file, thử nhanh 5 phút). Tóm tắt:
+
+1. Python 3.11 + Node.js 20+, `git clone https://github.com/cuonglatao1/m44-labeler.git`.
+2. nuScenes-mini (`v1.0-mini.tgz`) giải nén vào `data
+uscenes` của repo (hoặc `D:\data
+uscenes`, hoặc đặt `NUSC_ROOT`).
+3. `setup_windows.bat`: cài thư viện, nạp kết quả YOLO có sẵn (`precomputed/yolo_dets_nuscenes_mini.json.gz`, không cần
+   torch), build giao diện. Muốn chạy YOLO mới: `pip install -r requirements-detect.txt` rồi
+   `cd backend && python -m labeler.precompute --split all`.
+4. `run_app.bat` → <http://localhost:8770>. Khi sửa code: `run_dev.bat` (giao diện ở <http://localhost:5173>); sửa
+   backend thì phải chạy lại `run_app.bat`.
 
 ## Giao diện
 
