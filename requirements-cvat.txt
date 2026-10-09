@@ -1,0 +1,3 @@
+# Only for backend/labeler/export_cvat.py; keep the major.minor of your CVAT server
+-r requirements.txt
+cvat-sdk==2.75.0

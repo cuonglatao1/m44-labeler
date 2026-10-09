@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "m44-labeler",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set NUSC_ROOT=D:\data\nuscenes&& cd backend && ..\.venv\Scripts\python.exe -m uvicorn labeler.main:app --port 8770"],
+      "port": 8770
+    }
+  ]
+}

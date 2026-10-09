@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+data/
+cache/
+weights/
+*.pt
+*.pth
+frontend/node_modules/
+frontend/dist/
+.cvat.env
+scratch/
+.anthropic.env
+out/
+.claude/settings.local.json

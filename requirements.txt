@@ -1,0 +1,9 @@
+# Python 3.10-3.12 (3.11 recommended). Backend of the labeler: no torch needed at runtime.
+numpy<2
+scipy
+pillow
+pyquaternion
+nuscenes-devkit
+fastapi
+uvicorn[standard]
+anthropic>=1.12

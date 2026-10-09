@@ -1,0 +1,5 @@
+# scripts run inside WSL/Linux must keep LF; .bat files need CRLF on Windows
+* text=auto eol=lf
+*.bat text eol=crlf
+*.jpg binary
+*.png binary

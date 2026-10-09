@@ -1,0 +1,3 @@
+# Only for backend/labeler/precompute.py (YOLO on the 6 camera images). PyPI torch is CPU-only on Windows.
+-r requirements.txt
+ultralytics

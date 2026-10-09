@@ -1,0 +1,90 @@
+{
+ "min_visibility": 3,
+ "no_match_min_height_px": 60,
+ "missing_min_height_px": 60,
+ "missing_conf": 0.7,
+ "skip_night": true,
+ "offset_iou": {
+  "car": 0.42,
+  "pedestrian": 0.3,
+  "truck": 0.51,
+  "bus": 0.65,
+  "motorcycle": 0.25,
+  "construction_vehicle": 0.29,
+  "bicycle": 0.27,
+  "trailer": 0.12
+ },
+ "size_bounds": {
+  "car": {
+   "h": [
+    -0.118,
+    0.432
+   ],
+   "w": [
+    -0.087,
+    0.721
+   ]
+  },
+  "pedestrian": {
+   "h": [
+    -0.046,
+    0.581
+   ],
+   "w": [
+    -0.001,
+    1.018
+   ]
+  },
+  "truck": {
+   "h": [
+    0.04,
+    0.482
+   ],
+   "w": [
+    -0.012,
+    0.983
+   ]
+  },
+  "bus": {
+   "h": [
+    -0.007,
+    0.389
+   ],
+   "w": [
+    -0.108,
+    0.188
+   ]
+  },
+  "motorcycle": {
+   "h": [
+    0.014,
+    0.544
+   ],
+   "w": [
+    -0.382,
+    1.12
+   ]
+  },
+  "construction_vehicle": {
+   "h": [
+    -0.42,
+    0.771
+   ],
+   "w": [
+    -0.12,
+    0.958
+   ]
+  },
+  "bicycle": {
+   "h": [
+    -0.301,
+    0.708
+   ],
+   "w": [
+    -1.061,
+    0.877
+   ]
+  }
+ },
+ "mismatch_min_iou": 0.3
+}
