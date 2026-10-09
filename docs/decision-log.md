@@ -2,6 +2,14 @@
 
 Mỗi quyết định kỹ thuật: bối cảnh → quyết định → lý do → hệ quả. Mới nhất ở trên cùng.
 
+## D-019 · Kiểm tra trên 146 scene val nuScenes (dữ liệu mới), tool đóng băng ở commit 0a2e424
+- **Bối cảnh:** mọi số đo trước đó dùng nuScenes-mini (2 scene val, cùng vài vật lặp lại; không có cảnh đêm ở val).
+- **Cách làm:** đóng băng code và ngưỡng (commit `0a2e424`, đã push), chạy một lần trên 146 scene val chính thức (bỏ 4
+  scene trùng mini) chỉ với gói metadata; không chỉnh gì theo kết quả trong lần chạy này.
+- **Kết quả:** theo thời gian bắt 98 % lỗi (đêm 99 %), báo nhầm 0,08 / frame; chép cuboid đúng 97 % (đêm 94 %) – khớp
+  với mini. Kích thước phi lý báo nhầm 0,85 / frame, chồng nhau 0,46 / frame – không giữ được.
+- **Hệ quả:** làm v2 cho hai kiểm tra này (D-020); báo cáo cả v1 và v2, nói rõ v2 được sửa sau khi đã thấy kết quả val.
+
 ## D-018 · Chép cuboid sang frame sau + mã vật cho mọi cuboid; không kéo theo điểm LiDAR
 - **Bối cảnh:** kiểm tra theo thời gian cần biết cuboid nào là cùng một vật giữa các frame. GT có `instance_token`; cuboid
   vẽ trong app thì không, phải nối bằng vị trí → recall thời gian 98 % → 71 %.

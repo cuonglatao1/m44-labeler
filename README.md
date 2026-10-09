@@ -240,6 +240,38 @@ của vật đã đi khỏi. Bước "kéo theo điểm LiDAR" bị tắt vì tr
 dồn (còn 53 % đúng sau 5 frame, `--chain 5`) – công cụ để chép rồi kiểm từng frame, không phải để chép mù. Lưu ý: frame
 nguồn ở đây là GT (rất mượt); với nhãn người gán, tỉ lệ đúng sẽ thấp hơn – đo được khi chạy pilot.
 
+## Kiểm tra trên dữ liệu mới (nuScenes val đầy đủ)
+
+Mọi số đo ở trên dùng nuScenes-mini (2 scene val). Để kiểm tra trên dữ liệu chưa từng thấy, tool được **đóng băng** ở
+commit `0a2e424` (ngưỡng `configs/lidar_qc.json` học từ 8 scene mini train, không đổi) rồi chạy **một lần** trên
+**146 scene val chính thức** của nuScenes (150 scene trừ 4 scene có trong mini): 5857 keyframe, 180 421 cuboid; 107 scene
+ngày, 24 mưa, **15 đêm**. Chỉ cần gói metadata (`v1.0-trainval_meta.tgz`: mọi nhãn + vị trí xe), nên đo được các kiểm
+tra không cần LiDAR / ảnh: theo thời gian, kích thước, chồng nhau, và chép cuboid. Lỗi cài như mọi lần đo.
+
+```
+python -m labeler.eval_heldout --nusc-root D:/data/nuscenes-trainval [--no-instance]
+```
+
+| nối vật bằng `instance_token` | ngày | mưa | **đêm** | tất cả | (mini val) |
+|---|---|---|---|---|---|
+| recall dời chỗ | 96 % | 96 % | 97 % | 96 % | 96–99 % |
+| recall sai kích thước | 100 % | 100 % | 100 % | 100 % | 99–100 % |
+| recall xoay 90° | 94 % | 96 % | 97 % | 95 % | 99 % |
+| recall đổi class | 100 % | 100 % | 100 % | 100 % | 99–100 % |
+| **mọi lỗi** | **98 %** | **98 %** | **99 %** | **98 %** | 98–99 % |
+| báo động giả theo thời gian / frame | 0,09 | 0,06 | 0,03 | 0,08 | 0,07 |
+| chép cuboid (Ctrl+B) đúng ngay | 97 % | 98 % | 94 % | 97 % | 99 % |
+
+Kiểm tra theo thời gian và chép cuboid giữ nguyên trên dữ liệu mới, **kể cả ban đêm** (camera không cần). Nối chỉ bằng vị
+trí (`--no-instance`, như cuboid tự vẽ không dùng Ctrl+B): mọi lỗi 92 %, dời chỗ 80 %, báo động giả theo thời gian
+0,9 / frame.
+
+**Hai kiểm tra không giữ được:** *Kích thước phi lý* báo nhầm 0,85 / frame (barrier, cọc, trailer, xe công trình, xe tải
+– khoảng kích thước học từ quá ít vật của mini) và *Chồng nhau* 0,46 / frame (phần lớn là **đầu kéo + rơ-moóc** chồng ở
+khớp nối – đúng thực tế – rồi người đi bộ đứng sát nhau). Bản sửa (v2) ở mục dưới.
+
+Chưa đo được trên dữ liệu mới: kiểm tra LiDAR và camera (cần gói dữ liệu cảm biến, chưa tải).
+
 ## Xuất
 
 - `Xuất nuScenes` (`GET /api/export?fmt=nuscenes`): mọi frame đã lưu theo định dạng nuScenes detection results (hệ
