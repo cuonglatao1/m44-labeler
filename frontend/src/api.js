@@ -29,6 +29,13 @@ export const api = {
     fetch(withPilot(`/api/frames/${i}/propose_missing`), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ boxes }),
     }).then(json),
+  propagate: (i, boxes, direction = 'prev') =>
+    fetch(withPilot(`/api/frames/${i}/propagate`), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ boxes, direction }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `${r.status} ${r.statusText}`)
+      return r.json()
+    }),
   exportUrl: (fmt) => `/api/export?fmt=${fmt}`,
   pilotSubmit: (i, boxes) =>
     fetch(withPilot(`/api/frames/${i}/pilot_submit`), {

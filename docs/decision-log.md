@@ -2,6 +2,16 @@
 
 Mỗi quyết định kỹ thuật: bối cảnh → quyết định → lý do → hệ quả. Mới nhất ở trên cùng.
 
+## D-018 · Chép cuboid sang frame sau + mã vật cho mọi cuboid; không kéo theo điểm LiDAR
+- **Bối cảnh:** kiểm tra theo thời gian cần biết cuboid nào là cùng một vật giữa các frame. GT có `instance_token`; cuboid
+  vẽ trong app thì không, phải nối bằng vị trí → recall thời gian 98 % → 71 %.
+- **Quyết định:** mọi cuboid mang `instance` (GT: token nuScenes, app: `obj_…`, cuboid cũ được gán khi mở frame). Thêm
+  "chép từ frame trước" (Ctrl+B): bù ego motion, đẩy theo vận tốc ước từ hai frame trước, giữ mã vật.
+- **Lý do:** vừa sửa gốc của giới hạn trên, vừa là tính năng tăng tốc gán chuẩn của tool 3D (propagate / track).
+- **Đã thử và bỏ:** trượt cuboid chép tới chỗ nhiều điểm LiDAR hơn – trên train kém đi ở mọi ngưỡng (97 % → 91–96 %
+  đúng), vì điểm chỉ nằm ở mặt hướng về cảm biến.
+- **Kết quả (val):** 99 % cuboid chép đúng ngay theo luật pilot (đứng yên 100 %, đang chạy 94 %); chỉ bù ego 89 %.
+
 ## D-017 · Cuboid camera không kiểm được: thêm kiểm tra bằng LiDAR và theo thời gian (không tách thành đề N2-04C)
 - **Bối cảnh:** ở val 65 % cuboid không qua được `_checkable` của M44 (bị che, xa, class YOLO không nhận); phần lớn là
   vật bị che 45–70 %. Mentor đồng ý mở rộng sang point cloud miễn có cách giải quyết riêng.

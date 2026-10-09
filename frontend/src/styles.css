@@ -581,3 +581,8 @@ kbd {
 .row.flag-row.sure { background: rgba(251, 113, 133, 0.05); }
 .btn.pulse { border-color: var(--accent-line); color: #a9c1ff; animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--accent-soft); } }
+
+/* object id (propagation) */
+.inst-field input { font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace; font-size: 11.5px; font-weight: 500; }
+.inst-field label { display: inline-flex; align-items: center; color: var(--track); }
+.carried { font-size: 10.5px; color: var(--text-3); border: 1px dashed var(--line-3); border-radius: 5px; padding: 0 5px; white-space: nowrap; }

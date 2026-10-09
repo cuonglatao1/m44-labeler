@@ -16,6 +16,7 @@ from m44.geometry import project_frame
 from m44.match import DEFAULT_CFG, check, load_cfg
 
 from . import assistant, lidar_qc, track
+from .propagate import dismissed_types, new_instance, propagate
 from .qc import rank_flags
 from .dataset import Dataset
 from .fix import suggest
@@ -46,13 +47,19 @@ class Box(BaseModel):
     yaw: float
     visibility: int | None = None  # nuScenes level 1-4; None for boxes drawn in the app
     num_lidar_pts: int | None = None
-    instance: str | None = None  # nuScenes instance token (GT cuboids): links the object across frames
-    source: str | None = None  # None = GT / drawn by hand, 'proposal' = made by /propose
+    instance: str | None = None  # object id across frames: nuScenes instance token, or obj_<hex> for app cuboids
+    source: str | None = None  # None = GT / drawn by hand, 'proposal' = made by /propose, 'propagated' = /propagate
     proposal: dict | None = None  # method, fit_iou, cam of a proposal
+    propagated: dict | None = None  # from (sample), moved (m, LiDAR snap), points, motion of a propagated cuboid
 
 
 class Boxes(BaseModel):
     boxes: list[Box]
+
+
+class PropagateReq(BaseModel):
+    boxes: list[Box]  # the cuboids already in the current frame (not copied twice)
+    direction: Literal['prev', 'next'] = 'prev'
 
 
 class ProposeOne(BaseModel):
@@ -169,6 +176,7 @@ def get_frame(i: int, init: Literal['gt', 'empty'] = 'gt', source: Literal['auto
         boxes = saved
     else:
         boxes = f['boxes'] if (source if source != 'auto' else init) == 'gt' else []
+    boxes = _with_instance(boxes)
     extra = {'pilot': {'name': pilot, 'assist': assist, 'started': store.pilot_start(key),
                        'run': store.pilot_run(key)}} if pilot else {}
     return {
@@ -244,6 +252,7 @@ def _as_box(sample: str, p: dict, cam: str) -> dict:
     _n_new += 1
     return {'box_id': f'prop_{sample[:6]}_{_n_new:04d}', 'cls': p['cls'], 'center': p['center'],
             'size': p['size'], 'yaw': p['yaw'], 'visibility': None, 'num_lidar_pts': p['n_points'],
+            'instance': new_instance(),
             'source': 'proposal', 'proposal': {'method': p['method'], 'fit_iou': p['fit_iou'], 'cam': cam}}
 
 
@@ -259,6 +268,45 @@ def post_propose(i: int, body: ProposeOne, pilot: str | None = None, assist: boo
     box = _as_box(f['sample'], p, body.cam)
     store.log(pilot_key(f['sample'], pilot, assist), 'propose', {'box': box, 'bbox': body.bbox})
     return box
+
+
+def _with_instance(boxes: list[dict]) -> list[dict]:
+    """Every cuboid carries an object id: GT ones (and cuboids edited from them) their nuScenes instance token, older
+    saved cuboids without one get a new id here (kept from the next save on)."""
+    return [b if b.get('instance') else {**b, 'instance': ds.gt_instance.get(b['box_id']) or new_instance()} for b in boxes]
+
+
+def _labels_of(j: int, pilot: str | None, assist: bool) -> list[dict] | None:
+    """Cuboids of frame j to copy from: the saved labels, else GT (never GT for a pilot)."""
+    fj = ds.frames[j]
+    saved = store.get_boxes(pilot_key(fj['sample'], pilot, assist))
+    if saved is not None:
+        return saved
+    return None if pilot else fj['boxes']
+
+
+@app.post('/api/frames/{i}/propagate')
+def post_propagate(i: int, body: PropagateReq, pilot: str | None = None, assist: bool = True):
+    """Copy the cuboids of the previous (or next) keyframe of the scene into frame i: ego motion compensated, moving
+    objects pushed forward with their velocity, snapped to the LiDAR points, object ids kept (labeler/propagate.py)."""
+    f = _frame(i)
+    ix = ds.scene_frames[f['scene']]
+    r = ix.index(i)
+    step = -1 if body.direction == 'prev' else 1
+    if not 0 <= r + step < len(ix):
+        raise HTTPException(422, 'Đây là frame đầu (cuối) của scene, không có frame để chép.')
+    j, k = ix[r + step], ix[r + 2 * step] if 0 <= r + 2 * step < len(ix) else None
+    src = _labels_of(j, pilot, assist)
+    if not src:
+        raise HTTPException(422, f"Frame {ds.frames[j]['split']} {ds.frames[j]['split_index']} chưa có cuboid nào để chép.")
+    older = (ds.frames[k], _labels_of(k, pilot, assist) or []) if k is not None else None
+    existing = [b.model_dump() for b in body.boxes]
+    seen = dismissed_types(src, store.feedback(pilot_key(ds.frames[j]['sample'], pilot, assist)), ds.gt_instance)
+    new, stats = propagate(f, (ds.frames[j], src), older, existing, ds.sweep(i), ds.gt_instance, dismissed=seen)
+    stats['carried_verdicts'] = sum(len(b['propagated']['dismissed']) for b in new)
+    stats['from_frame'] = f"{ds.frames[j]['split']} {ds.frames[j]['split_index']}"
+    store.log(pilot_key(f['sample'], pilot, assist), 'propagate', stats)
+    return {'boxes': new, 'stats': stats}
 
 
 @app.post('/api/frames/{i}/propose_missing')

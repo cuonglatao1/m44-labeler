@@ -68,6 +68,7 @@ export function ShortcutsDialog({ assist, pilot, onClose }) {
     ]],
     ['Công cụ', [
       ['Chọn', 'V'], ['Thêm cuboid (rồi bấm lên BEV)', 'B'], ['Căn giữa vào cuboid', 'C'], ['Bật / tắt xoay 3D', '3'],
+      ...(pilot ? [] : [['Chép cuboid từ frame trước (Shift: frame sau)', 'Ctrl B']]),
     ]],
     ...(assist ? [['Trợ giúp 2D–3D', [
       ['Gợi ý cho mọi ô cam', 'Shift G'], ['Gợi ý cho cờ đang chọn', 'G'], ['Cờ tiếp / trước', 'N P'],

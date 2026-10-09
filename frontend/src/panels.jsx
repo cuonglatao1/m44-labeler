@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Camera, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDashed, Eye, EyeOff, FlipHorizontal2, History, Inbox, Info, Radar,
+  AlertTriangle, Camera, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDashed, CopyPlus, Eye, EyeOff, Fingerprint, FlipHorizontal2, History, Inbox, Info, Radar,
   ShieldAlert, ShieldCheck, Sparkles, Trash2, Wand2, X,
 } from 'lucide-react'
 import { CLASSES, CLASS_COLORS } from './geometry.js'
@@ -84,6 +84,7 @@ export function ObjectsPanel({ boxes, status, selected, onSelect, onDelete, assi
                   {assist && <StatusIcon st={status[b.box_id]} />}
                   <span className="id">{b.box_id.length > 14 ? `…${b.box_id.slice(-10)}` : b.box_id}</span>
                   {b.source === 'proposal' && <Sparkles size={13} style={{ color: '#9ec0ff' }} title="gợi ý từ ảnh" />}
+                  {b.source === 'propagated' && <CopyPlus size={13} style={{ color: 'var(--track)' }} title="chép từ frame trước" />}
                   <span className="meta">{Math.hypot(b.center[0], b.center[1]).toFixed(1)} m</span>
                   <button className="icon-btn sm trash" title="Xoá (Del)" onClick={(e) => { e.stopPropagation(); onDelete(b.box_id) }}>
                     <Trash2 size={13} />
@@ -100,7 +101,7 @@ export function ObjectsPanel({ boxes, status, selected, onSelect, onDelete, assi
 
 // ---------- issues ----------
 
-export function IssuesPanel({ flags: allShown, allFlags, feedback, activeFlag, onPick, onVerdict, showDismissed, setShowDismissed, onAsk }) {
+export function IssuesPanel({ flags: allShown, allFlags, feedback, carried, activeFlag, onPick, onVerdict, showDismissed, setShowDismissed, onAsk }) {
   const [src, setSrc] = useState('all')
   const flags = useMemo(() => (src === 'all' ? allShown : allShown.filter((f) => (f.source || 'camera') === src)), [allShown, src])
   const nBySource = useMemo(() => {
@@ -159,6 +160,7 @@ export function IssuesPanel({ flags: allShown, allFlags, feedback, activeFlag, o
               <span className={`badge ${f.type}`}>{FLAG_LABEL[f.type] || f.type}</span>
               <span>{f.cls_3d || f.cls_2d}</span>
               <SourceTag source={f.source} />
+              {carried?.has(flagKey(f)) && <span className="carried" title="Loại cờ này đã được bác trên chính vật này ở frame được chép sang">bác ở frame trước</span>}
               <span className="meta">{(f.source || 'camera') === 'camera' ? camName(f.cam) : ''}{f.iou != null ? ` · ${f.iou.toFixed(2)}` : ''}</span>
               <span className="actions">
                 {onAsk && (
@@ -240,6 +242,20 @@ function QcRows({ qc }) {
 const loadFlag = (k) => { try { return localStorage.getItem(k) === '1' } catch { return false } }
 const saveFlag = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0') } catch { /* private mode */ } }
 
+// object id: edit to merge two ids that are the same object (e.g. drawn twice in different frames)
+function InstanceField({ value, onCommit }) {
+  const [text, setText] = useState(value)
+  useEffect(() => { setText(value) }, [value])
+  const commit = () => { const v = text.trim(); if (v && v !== value) onCommit(v); else setText(value) }
+  return (
+    <div className="field inst-field" title="Cùng một vật ở các frame phải cùng mã để kiểm tra theo thời gian nối được">
+      <label><Fingerprint size={13} /></label>
+      <input value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} spellCheck={false}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setText(value); e.currentTarget.blur() } }} />
+    </div>
+  )
+}
+
 export function Inspector({ box, status, qc, flags, assist, onEdit, onDelete, onClose }) {
   const deg = (box.yaw * 180) / Math.PI
   const set = (fn) => onEdit(fn)
@@ -294,6 +310,14 @@ export function Inspector({ box, status, qc, flags, assist, onEdit, onDelete, on
           <div className="insp-sec qc-head">Kiểm tra QC<span className={`chip ${LEVEL[qc.level][0]}`}>{LEVEL[qc.level][1]}</span></div>
           <QcRows qc={qc} />
         </>
+      )}
+      <div className="insp-sec">Mã vật (nối giữa các frame)</div>
+      <InstanceField value={box.instance || ''} onCommit={(v) => set((b) => ({ ...b, instance: v }))} />
+      {box.source === 'propagated' && box.propagated && (
+        <div className="insp-note">
+          <CopyPlus size={14} style={{ color: 'var(--track)' }} />
+          Chép từ frame trước{box.propagated.motion ? ', đẩy theo vận tốc của vật' : ''} – kiểm lại vị trí rồi chỉnh nếu cần
+        </div>
       )}
       {box.source === 'proposal' && box.proposal && (
         <div className="insp-note">

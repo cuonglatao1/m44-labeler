@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BoxSelect, Boxes, ChevronLeft, ChevronRight, CircleHelp, Crosshair, Download, FileJson, Layers, Loader2,
+  BoxSelect, Boxes, ChevronLeft, ChevronRight, CircleHelp, CopyPlus, Crosshair, Download, FileJson, Layers, Loader2,
   Bot, Maximize2, MousePointer2, MoreHorizontal, Moon, Redo2, RotateCcw, Rotate3d, Save, Send, Sparkles, Trash2, TriangleAlert,
   Undo2, UserRound,
 } from 'lucide-react'
@@ -34,6 +34,8 @@ const loadPref = (k, d) => { try { return localStorage.getItem(k) ?? d } catch {
 const savePref = (k, v) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 
 const bboxArea = (p) => (p.bbox[2] - p.bbox[0]) * (p.bbox[3] - p.bbox[1])
+// object id that links a cuboid drawn here to the same object in other frames (GT cuboids keep the nuScenes token)
+const newInstance = () => `obj_${Math.random().toString(16).slice(2, 12)}`
 // the parts of a check response the UI keeps: camera + LiDAR + temporal flags, matches, QC per cuboid, coverage
 const pickCheck = (r) => ({ flags: r.flags, matches: r.matches, qc: r.qc || {}, coverage: r.coverage || {} })
 
@@ -162,7 +164,7 @@ export default function App() {
     snapshot()
     const box = {
       box_id: `new_${Date.now().toString(36)}`, cls: newClass, center: [x, y, groundZ(points, x, y)],
-      size: [...CLASS_SIZES[newClass]], yaw: 0, visibility: null, num_lidar_pts: null,
+      size: [...CLASS_SIZES[newClass]], yaw: 0, visibility: null, num_lidar_pts: null, instance: newInstance(),
     }
     setBoxes((bs) => [...bs, box]); setDirty(true); setSelected(box.box_id); setAddMode(false)
   }, [newClass, points, snapshot])
@@ -185,6 +187,23 @@ export default function App() {
       .catch(() => toast('Không gợi ý được cho box này (không có điểm LiDAR, vật quá xa)', 'error'))
       .finally(() => setProposing(false))
   }, [index, addProposals, toast])
+
+  // copy the cuboids of the previous keyframe (ego motion + object velocity, object ids kept): labeler/propagate.py
+  const [propagating, setPropagating] = useState(false)
+  const propagateFrom = useCallback((direction = 'prev') => {
+    if (PILOT) return
+    setPropagating(true)
+    api.propagate(index, boxesRef.current, direction)
+      .then((r) => {
+        if (r.boxes.length) { snapshot(); setBoxes((bs) => [...bs, ...r.boxes]); setDirty(true) }
+        const s = r.stats
+        toast(`Chép ${s.copied} cuboid từ frame ${s.from_frame}` + (s.with_motion ? ` (${s.with_motion} vật đang chạy được đẩy theo vận tốc)` : '')
+          + (s.skipped_existing ? `, bỏ ${s.skipped_existing} vật đã có` : '')
+          + (s.carried_verdicts ? `, mang theo ${s.carried_verdicts} cờ đã bác` : '') + '. Kiểm lại vật đã đi khỏi và thêm vật mới.')
+      })
+      .catch((e) => toast(String(e.message || e), 'error'))
+      .finally(() => setPropagating(false))
+  }, [index, snapshot, toast])
 
   const proposeAll = useCallback(() => {
     if (!ASSIST) return
@@ -234,7 +253,22 @@ export default function App() {
   }, [index, load])
 
   // ---------- derived ----------
-  const visible = useCallback((f) => feedback[flagKey(f)] !== 'false_alarm', [feedback])
+  // verdicts: the reviewer's own on this frame, plus "false alarm" carried with a copied cuboid for the flag types
+  // already dismissed on that object in the frame it was copied from (an explicit ✓ / ✗ here wins)
+  const carried = useMemo(() => {
+    const out = new Set()
+    for (const f of check.flags) {
+      const b = f.box_id && boxes.find((x) => x.box_id === f.box_id)
+      if (b?.propagated?.dismissed?.includes(f.type) && !feedback[flagKey(f)]) out.add(flagKey(f))
+    }
+    return out
+  }, [check.flags, boxes, feedback])
+  const verdicts = useMemo(() => {
+    const v = { ...feedback }
+    for (const k of carried) v[k] = 'false_alarm'
+    return v
+  }, [feedback, carried])
+  const visible = useCallback((f) => verdicts[flagKey(f)] !== 'false_alarm', [verdicts])
   // what the reviewer sees everywhere (summary, colours, inspector): the check minus the flags marked false alarm
   const reviewed = useMemo(() => applyVerdicts(check, (f) => !visible(f)), [check, visible])
   const status = useMemo(() => (ASSIST ? boxStatus(reviewed) : {}), [reviewed])
@@ -371,7 +405,7 @@ export default function App() {
     else if (s.action === 'set_class') { snapshot(); replaceBox({ ...b, cls: s.cls }) }
     else if (s.action === 'delete') deleteBox(s.box_id)
     else if (s.action === 'create') {
-      addProposals([{ box_id: `fix_${s.id}`, ...s.box, visibility: null, num_lidar_pts: s.after?.points ?? null,
+      addProposals([{ box_id: `fix_${s.id}`, ...s.box, visibility: null, num_lidar_pts: s.after?.points ?? null, instance: newInstance(),
         source: 'proposal', proposal: { method: 'fix', fit_iou: s.after?.fit_iou, cam: s.cam } }])
     } else if (s.action === 'dismiss') {
       const f = check.flags.find((g) => g.type === s.flag?.type && (g.box_id ?? null) === (s.flag?.box_id ?? null) && g.cam === s.flag?.cam)
@@ -389,6 +423,7 @@ export default function App() {
       const k = e.key.toLowerCase()
       const ctrl = e.ctrlKey || e.metaKey
       if (ctrl && k === 's') { e.preventDefault(); save(); return }
+      if (ctrl && k === 'b') { e.preventDefault(); propagateFrom(e.shiftKey ? 'next' : 'prev'); return }
       if (ctrl && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return }
       if (ctrl && k === 'y') { e.preventDefault(); redo(); return }
       if (ctrl) return
@@ -437,7 +472,7 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [flags, activeFlag, selected, index, helpOpen, lightbox, save, undo, redo, editSelected, deleteBox, goTo, pickFlag,
-    proposeAll, proposeOne, setVerdict, centerOn])
+    proposeAll, proposeOne, setVerdict, centerOn, propagateFrom])
 
   // pilot: keep a draft on the server so a reload or a crash loses nothing
   useEffect(() => {
@@ -540,6 +575,8 @@ export default function App() {
       <nav className="rail">
         <Tool icon={MousePointer2} label="Chọn / chỉnh" keys="V" on={!addMode} onClick={() => setAddMode(false)} />
         <Tool icon={BoxSelect} label="Thêm cuboid" keys="B" on={addMode} onClick={() => setAddMode((m) => !m)} />
+        {!PILOT && <Tool icon={CopyPlus} label="Chép cuboid từ frame trước" keys="Ctrl B" disabled={propagating || !frame}
+          onClick={() => propagateFrom('prev')} />}
         {ASSIST && <Tool icon={Sparkles} label="Gợi ý mọi ô thiếu" keys="Shift G" disabled={proposing} onClick={proposeAll} />}
         <div className="rail-sep" />
         <Tool icon={Crosshair} label="Căn giữa cuboid đang chọn" keys="C" disabled={!selected} onClick={() => centerOn(selected)} />
@@ -665,7 +702,7 @@ export default function App() {
           <AssistantPanel llm={llm} messages={chat} busy={chatBusy} onSend={sendChat} onQuick={onQuick} onReset={resetAssistant}
             preview={preview} applied={applied} onPreview={setPreview} onApply={applySuggestion} hasFlag={!!activeFlagObj} />
         ) : tab === 'issues' && ASSIST ? (
-          <IssuesPanel flags={flags} allFlags={check.flags} feedback={feedback} activeFlag={activeFlag} onPick={pickFlag}
+          <IssuesPanel flags={flags} allFlags={check.flags} feedback={verdicts} carried={carried} activeFlag={activeFlag} onPick={pickFlag}
             onVerdict={setVerdict} showDismissed={showDismissed} setShowDismissed={setShowDismissed} onAsk={askAbout} />
         ) : (
           <ObjectsPanel boxes={boxes} status={status} selected={selected} onSelect={selectBox} onDelete={deleteBox} assist={ASSIST} />

@@ -58,6 +58,7 @@ gói sẵn, chạy offline).
 | T · 1 / 2 | quay đầu 180° · cờ đúng / báo động giả (bấm lại để bỏ) |
 | Del · Esc · Ctrl+Z / Ctrl+Y · Ctrl+S | xoá · bỏ chọn · hoàn tác / làm lại · lưu |
 | N / P · ← → | cờ tiếp / trước · frame |
+| Ctrl+B · Ctrl+Shift+B | chép cuboid từ frame trước / sau (giữ mã vật) |
 
 "Frame mới: GT / rỗng" chọn cách mở frame chưa lưu. Gán từ đầu (rỗng) thì các ô cam `MISSING_3D` chính là danh sách
 vật thể cần gán. Mỗi lần lưu ghi thời gian mở frame → lưu vào bảng `events` (dùng cho P4).
@@ -202,7 +203,38 @@ co giãn / tạo cuboid bị khoá cho tới khi bấm **Xem trước**; xoá cu
 Giới hạn, nói thẳng khi trình bày: (1) recall thời gian ở trên dùng `instance_token` của GT; nối cuboid chỉ bằng vị trí
 (như khi tự vẽ, `--no-instance`) thì thời gian còn 71 % (dời chỗ 71 %, đổi class 23 % vì xe ↔ người không nối được), báo
 động giả 0,85 / frame, LiDAR + thời gian vẫn 92 %. (2) Lỗi cài là lỗi tổng hợp; LiDAR chỉ bắt được vật có điểm (54 %
-cuboid). (3) Chưa làm: cộng dồn nhiều sweep (vật đứng yên), so với PointPillars làm "ý kiến thứ hai".
+cuboid). (3) Chưa làm: cộng dồn nhiều sweep (vật đứng yên), so với PointPillars làm "ý kiến thứ hai". Giới hạn (1)
+được khắc phục khi người gán dùng **Ctrl+B** (mục dưới): cuboid chép mang theo mã vật.
+
+## Chép cuboid sang frame sau và mã vật
+
+**Ctrl+B** (hoặc nút ⧉ ở thanh công cụ trái) chép mọi cuboid của keyframe liền trước trong scene vào frame đang mở;
+**Ctrl+Shift+B** chép từ frame sau (`backend/labeler/propagate.py`, `POST /api/frames/{i}/propagate`):
+
+- bù chính xác chuyển động của xe ego (LiDAR frame trước → global → LiDAR frame này);
+- vật có ở cả hai frame trước đó được đẩy tới theo vận tốc và tốc độ quay của nó;
+- giữ **mã vật** (`instance`), bỏ qua vật đã có trong frame (cùng mã hoặc cùng chỗ). Cuboid chép có biểu tượng ⧉ tím.
+
+Frame nguồn là nhãn đã lưu, chưa lưu thì GT; ở chế độ pilot chép chỉ được từ nháp của chính người đó (không có GT).
+Mọi cuboid giờ có mã vật: GT giữ `instance_token` của nuScenes, cuboid vẽ / gợi ý / chép trong app nhận `obj_…`.
+Inspector có ô **Mã vật** để sửa tay (ví dụ gộp hai mã khi một vật bị vẽ hai lần ở hai frame). Nhờ mã vật, kiểm tra theo
+thời gian nối đúng vật cả khi gán từ đầu – không phải đoán bằng vị trí (71 % → mức của `instance_token`, 98 %).
+
+Đo bằng `python -m labeler.eval_propagate --split val` – giả lập người gán làm xong mỗi frame (= GT) rồi chép sang frame
+sau, chấm từng cuboid chép theo luật pilot (tâm 0,7 m, cạnh 25 %, hướng 20°):
+
+| cách chép (val, 2 scene, 79 lần chép, 4361 cuboid) | đúng ngay | lệch nhẹ (≤ 2 m) | lệch xa |
+|---|---|---|---|
+| chép nguyên toạ độ | 3 % | 20 % | 78 % |
+| + bù chuyển động xe ego | 89 % | 8 % | 3 % |
+| **+ vận tốc của vật (app)** | **99 %** | 1 % | 0 % |
+| + kéo theo điểm LiDAR (không dùng) | 91 % | 9 % | 0 % |
+
+Vật đứng yên đúng 100 %, vật đang chạy 94 %. Mỗi lần chép người gán còn phải vẽ 3 % vật mới xuất hiện và xoá 3 % cuboid
+của vật đã đi khỏi. Bước "kéo theo điểm LiDAR" bị tắt vì trên train nó làm kết quả kém đi ở mọi ngưỡng thử (97 % →
+91–96 %): cuboid ôm cả vật còn điểm LiDAR chỉ nằm ở mặt hướng về cảm biến. Chép nối tiếp nhiều frame mà không sửa thì sai
+dồn (còn 53 % đúng sau 5 frame, `--chain 5`) – công cụ để chép rồi kiểm từng frame, không phải để chép mù. Lưu ý: frame
+nguồn ở đây là GT (rất mượt); với nhãn người gán, tỉ lệ đúng sẽ thấp hơn – đo được khi chạy pilot.
 
 ## Xuất
 
@@ -243,5 +275,7 @@ cuboid). (3) Chưa làm: cộng dồn nhiều sweep (vật đứng yên), so v�
 - [x] **P5 – kiểm tra cuboid camera không thấy:** LiDAR (bắn tia, kích thước, mặt đất, chồng nhau, điểm tràn, hướng) +
   thời gian (kích thước / vị trí / hướng / class theo chuỗi), gợi ý sửa, mức tin cậy QC, độ phủ; chỉnh trên train,
   đo trên val (`labeler/calib_lidar.py`, `labeler/eval_lidar.py`).
+- [x] **P6 – chép cuboid sang frame sau:** bù ego motion + vận tốc vật, giữ mã vật (Ctrl+B), ô mã vật trong inspector;
+  đo bằng `labeler/eval_propagate.py` (val: 99 % cuboid chép đúng ngay).
 - [ ] **P5 tiếp:** cộng dồn 3–5 sweep cho vật đứng yên; PointPillars làm ý kiến thứ hai; chỉnh lại ngưỡng từ phản hồi
   ✓ / ✗ của người gán (`GET /api/feedback/summary`).
