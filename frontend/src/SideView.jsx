@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { heightColor, toLocal } from './geometry.js'
+import { boxCorners, heightColor, resizeFace, toLocal } from './geometry.js'
 
 const W = 300, H = 170
 const MARGIN_ALONG = 1.5 // m shown beyond the box on each side
@@ -119,6 +119,117 @@ export default function SideView({ box, points, view: viewName, onDragStart, onC
         <line x1={x1} y1={y2} x2={x2} y2={y2} {...edge} style={{ cursor: 'ns-resize' }} {...handlers('bottom')} />
         <line x1={x1} y1={y1} x2={x1} y2={y2} {...edge} style={{ cursor: 'ew-resize' }} {...handlers('left')} />
         <line x1={x2} y1={y1} x2={x2} y2={y2} {...edge} style={{ cursor: 'ew-resize' }} {...handlers('right')} />
+      </svg>
+    </div>
+  )
+}
+
+// ---------- top view of the selected cuboid ----------
+// Looking down, turned with the cuboid: front to the right, its left side up. Drag the body to move it on the ground,
+// an edge to move that face, the round handle in front of it to turn it. Only points between 15 cm above the cuboid
+// bottom and its top are drawn (the ground would hide the object).
+function makeTop(box) {
+  const [l, w] = box.size
+  const scale = Math.min(W / (l + 2 * MARGIN_ALONG), H / (w + 2 * MARGIN_ALONG))
+  return {
+    box, scale,
+    toScreen: (u, v) => [W / 2 + u * scale, H / 2 - v * scale],
+    fromScreen: (x, y) => [(x - W / 2) / scale, (H / 2 - y) / scale],
+  }
+}
+
+export function TopView({ box, points, onDragStart, onChange }) {
+  const canvas = useRef()
+  const drag = useRef(null)
+  const [, rerender] = useState(0)
+  const v = drag.current?.view ?? makeTop(box)
+
+  useEffect(() => {
+    const ctx = canvas.current.getContext('2d')
+    ctx.clearRect(0, 0, W, H)
+    if (!points) return
+    const b = v.box
+    const [l, w, h] = b.size
+    for (let k = 0; k < points.length; k += 4) {
+      const dz = points[k + 2] - b.center[2]
+      if (dz < 0.15 || dz > h + 0.4) continue
+      const [u, s] = toLocal(b, points[k], points[k + 1])
+      if (Math.abs(u) > l / 2 + MARGIN_ALONG || Math.abs(s) > w / 2 + MARGIN_ALONG) continue
+      const [r, g, bl] = heightColor(dz, -0.3, h + 0.3)
+      ctx.fillStyle = `rgb(${r * 255 | 0},${g * 255 | 0},${bl * 255 | 0})`
+      const [sx, sy] = v.toScreen(u, s)
+      ctx.fillRect(sx - 1, sy - 1, 2.2, 2.2)
+    }
+  })
+
+  const local = (e) => {
+    const svg = e.currentTarget.ownerSVGElement ?? e.currentTarget
+    const r = svg.getBoundingClientRect()
+    return v.fromScreen(((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H)
+  }
+
+  const handlers = (kind) => ({
+    onPointerDown: (e) => {
+      e.stopPropagation()
+      e.currentTarget.setPointerCapture(e.pointerId)
+      drag.current = { kind, view: v, start: box, grab: local(e) }
+      onDragStart()
+    },
+    onPointerMove: (e) => {
+      const d = drag.current
+      if (!d) return
+      const [u, s] = local(e)
+      const b = d.start
+      if (d.kind === 'body') {
+        const du = u - d.grab[0], ds = s - d.grab[1]
+        const c = Math.cos(b.yaw), sn = Math.sin(b.yaw)
+        onChange({ ...b, center: [b.center[0] + c * du - sn * ds, b.center[1] + sn * du + c * ds, b.center[2]] })
+      } else if (d.kind === 'rotate') {
+        const turn = Math.atan2(s, u) - Math.atan2(d.grab[1], d.grab[0])
+        onChange({ ...b, yaw: b.yaw + turn })
+      } else {
+        const [axis, sign, q] = { front: [0, 1, u], back: [0, -1, u], left: [1, 1, s], right: [1, -1, s] }[d.kind]
+        onChange(resizeFace(b, axis, sign, q))
+      }
+    },
+    onPointerUp: (e) => {
+      if (!drag.current) return
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      drag.current = null
+      rerender((n) => n + 1)
+    },
+  })
+
+  // the current cuboid in the (frozen while dragging) frame of the view
+  const cur = drag.current ? box : v.box
+  const pts = boxCorners(cur).slice(0, 4).map(([x, y]) => v.toScreen(...toLocal(v.box, x, y)))
+  // bottom corners (geometry.js boxCorners): 0 front-left, 1 front-right, 2 back-right, 3 back-left
+  const [p0, p1, p2, p3] = pts
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  const front = mid(p0, p1)
+  const centre = mid(p0, p2)
+  const dir = [front[0] - centre[0], front[1] - centre[1]]
+  const len = Math.hypot(...dir) || 1
+  const knob = [front[0] + (dir[0] / len) * 16, front[1] + (dir[1] / len) * 16]
+  const edge = { stroke: 'transparent', strokeWidth: 12 }
+  const line = (a, b, kind, cursor) => (
+    <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} {...edge} style={{ cursor }} {...handlers(kind)} />
+  )
+
+  return (
+    <div className="sideview">
+      <canvas ref={canvas} width={W} height={H} />
+      <svg viewBox={`0 0 ${W} ${H}`}>
+        <polygon points={pts.map((p) => p.join(',')).join(' ')} fill="#ffffff14" stroke="#ffffff" strokeWidth={1.5}
+          style={{ cursor: 'move' }} {...handlers('body')} />
+        <line x1={p0[0]} y1={p0[1]} x2={p1[0]} y2={p1[1]} stroke="#4f8cff" strokeWidth={2.5} pointerEvents="none" />
+        {line(p0, p1, 'front', 'ew-resize')}
+        {line(p2, p3, 'back', 'ew-resize')}
+        {line(p1, p2, 'right', 'ns-resize')}
+        {line(p3, p0, 'left', 'ns-resize')}
+        <line x1={front[0]} y1={front[1]} x2={knob[0]} y2={knob[1]} stroke="#4f8cff" strokeWidth={1.5} pointerEvents="none" />
+        <circle cx={knob[0]} cy={knob[1]} r={6} fill="#4f8cff" stroke="#ffffff" strokeWidth={1.5}
+          style={{ cursor: 'grab' }} {...handlers('rotate')}><title>Kéo để xoay</title></circle>
       </svg>
     </div>
   )

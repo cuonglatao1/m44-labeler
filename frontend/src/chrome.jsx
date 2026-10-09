@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, Keyboard, Timer, X } from 'lucide-react'
 
+// Drag handle between two panels: reports the pointer x while dragging; double-click = back to the default size.
+export function Splitter({ onDrag, onReset, title }) {
+  const active = useRef(false)
+  return (
+    <div className="splitter" title={title} onDoubleClick={onReset}
+      onPointerDown={(e) => {
+        active.current = true; e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault()
+        document.body.classList.add('resizing') // no text selection while dragging
+      }}
+      onPointerMove={(e) => { if (active.current) onDrag(e.clientX) }}
+      onPointerUp={(e) => {
+        active.current = false; e.currentTarget.releasePointerCapture(e.pointerId)
+        document.body.classList.remove('resizing')
+      }} />
+  )
+}
+
 export function Tool({ icon: Icon, label, keys, on, disabled, onClick }) {
   return (
     <button className={`tool ${on ? 'on' : ''}`} disabled={disabled} onClick={onClick} aria-label={label}>
@@ -75,7 +92,7 @@ export function ShortcutsDialog({ assist, pilot, onClose }) {
       ['Cờ đúng / báo động giả', '1 2'],
     ]]] : []),
     ['Chung', [
-      ['Lưu', 'Ctrl S'], ['Hoàn tác / làm lại', 'Ctrl Z Ctrl Y'], ...(pilot ? [] : [['Frame trước / sau', '← →']]),
+      ['Lưu', 'Ctrl S'], ['Hoàn tác / làm lại', 'Ctrl Z Ctrl Y'], ['Thu gọn / mở thanh công cụ', '\\'], ...(pilot ? [] : [['Frame trước / sau', '← →']]),
       ['Bảng phím tắt', '?'],
     ]],
   ]

@@ -1,5 +1,6 @@
+import { useRef } from 'react'
 import { api } from './api.js'
-import { COLORS, EDGES } from './geometry.js'
+import { COLORS, EDGES, pixelToPlane } from './geometry.js'
 
 const W = 1600, H = 900
 
@@ -8,8 +9,49 @@ const W = 1600, H = 900
 // `thumb`: small preview, not interactive (the parent makes it a button that focuses this camera).
 // `onBackground`: click on the image away from any cuboid (opens the full-screen viewer); `zoom`: CSS zoom of
 // the image, strokes are divided by it so lines stay thin when zoomed in.
+// Dragging the selected cuboid (when `box`, `cal` and onBoxChange are given) moves it on the ground: the pixel under the
+// mouse is followed on the horizontal plane through the middle of the cuboid, so it slides under the cursor.
+const DRAG_PX = 3
+
 export default function CameraView({ frameIndex, cam, proj, flags, dets, colors, selected, onSelect, onPropose, thumb, label,
-  onBackground, zoom = 1, ghost }) {
+  onBackground, zoom = 1, ghost, box, cal, onDragStart, onBoxChange }) {
+  const drag = useRef(null)
+  const canDrag = !thumb && box && cal && onBoxChange
+  const imgPoint = (e) => {
+    const r = e.currentTarget.ownerSVGElement.getBoundingClientRect()
+    return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H]
+  }
+  const dragHandlers = canDrag ? {
+    onPointerDown: (e) => {
+      if (e.button !== 0) return
+      e.stopPropagation() // the full-screen viewer would pan
+      const zMid = box.center[2] + box.size[2] / 2
+      const hit = pixelToPlane(cal, ...imgPoint(e), zMid)
+      if (!hit) return
+      e.currentTarget.setPointerCapture(e.pointerId)
+      drag.current = { start: box, hit, zMid, x: e.clientX, y: e.clientY, moving: false }
+    },
+    onPointerMove: (e) => {
+      const d = drag.current
+      if (!d) return
+      if (!d.moving) {
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_PX) return
+        d.moving = true
+        onDragStart?.()
+      }
+      const p = pixelToPlane(cal, ...imgPoint(e), d.zMid)
+      if (!p) return
+      const b = d.start
+      onBoxChange({ ...b, center: [b.center[0] + p[0] - d.hit[0], b.center[1] + p[1] - d.hit[1], b.center[2]] })
+    },
+    onPointerUp: (e) => {
+      const d = drag.current
+      if (!d) return
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      drag.current = null
+      if (d.moving) e.currentTarget.dataset.dragged = '1' // the click that follows is not a selection
+    },
+  } : {}
   const camDets = dets.filter((d) => d.cam === cam)
   const missing = flags.filter((f) => f.cam === cam && f.type === 'MISSING_3D')
   const nFlags = flags.filter((f) => f.cam === cam).length
@@ -32,7 +74,12 @@ export default function CameraView({ frameIndex, cam, proj, flags, dets, colors,
         {proj.map((p) => {
           const on = p.box_id === selected
           return (
-            <g key={p.box_id} onClick={() => onSelect(p.box_id)} style={{ cursor: 'pointer' }}>
+            <g key={p.box_id} style={{ cursor: on && canDrag ? 'move' : 'pointer', touchAction: 'none' }}
+              onClick={(e) => {
+                if (e.currentTarget.dataset.dragged) { delete e.currentTarget.dataset.dragged; return }
+                onSelect(p.box_id)
+              }}
+              {...(on ? dragHandlers : {})}>
               {EDGES.map(([a, b], i) => {
                 const A = p.corners_2d[a], B = p.corners_2d[b]
                 if (!A || !B) return null

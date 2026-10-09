@@ -66,9 +66,10 @@ button:focus-visible, .frame-select:focus-visible { outline: 2px solid var(--acc
 /* ---------- shell: floating cards on the page background ---------- */
 .app {
   display: grid; height: 100vh; gap: 8px; padding: 0 8px;
-  grid-template-columns: 56px minmax(0, 1fr) 356px;
+  grid-template-columns: 56px 8px minmax(0, 1fr) 8px 356px;  /* rail · gap · work · splitter · side (set inline) */
   grid-template-rows: 56px minmax(0, 1fr) 30px;
-  grid-template-areas: 'top top top' 'rail work side' 'status status status';
+  grid-template-areas: 'top top top top top' 'rail . work split side' 'status status status status status';
+  column-gap: 0;
 }
 .topbar { grid-area: top; }
 .rail { grid-area: rail; }
@@ -200,7 +201,20 @@ kbd {
 .rail-sep { width: 22px; height: 1px; background: var(--line-2); margin: 6px 0; }
 
 /* ---------- workspace ---------- */
-.work { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 8px; min-height: 0; }
+.work { display: grid; grid-template-columns: minmax(0, 1.15fr) 8px minmax(0, 1fr); gap: 0; min-height: 0; }
+.rail { overflow: hidden; min-width: 0; }
+
+/* draggable panel borders */
+.splitter { position: relative; cursor: col-resize; touch-action: none; min-height: 0; }
+.splitter::after {
+  content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 44px; border-radius: 4px;
+  transform: translate(-50%, -50%); background: var(--line-3); opacity: 0; transition: opacity 0.15s, background 0.15s;
+}
+.splitter:hover::after, .splitter:active::after { opacity: 1; background: var(--accent); }
+.side-split { grid-area: split; display: flex; min-height: 0; }
+.side-split .splitter { flex: 1; }
+body.resizing, body.resizing * { user-select: none !important; cursor: col-resize !important; }
+.rail-open { position: absolute; z-index: 7; left: 10px; bottom: 12px; width: 34px; height: 34px; padding: 0; }
 .viewport {
   position: relative; min-height: 0; overflow: hidden;
   background: radial-gradient(circle at 50% 45%, #0d1018 0%, #06070a 75%);
@@ -230,16 +244,16 @@ kbd {
 .swatch { width: 10px; height: 10px; border-radius: 3px; }
 
 /* side / back views over the bottom of the viewport */
-.sideviews { display: flex; gap: 8px; }
-.sidecard { width: 300px; overflow: hidden; padding: 0; }
+.sideviews { display: flex; gap: 8px; width: 100%; }
+.sidecard { flex: 1 1 0; min-width: 0; max-width: 300px; overflow: hidden; padding: 0; }
 .sidecard .side-head {
   display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; font-size: 10.5px; font-weight: 600;
   color: var(--text-2); border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: 0.08em;
 }
 .sidecard .side-head span:last-child { color: var(--text-3); font-weight: 500; text-transform: none; letter-spacing: 0; }
-.sideview { position: relative; width: 300px; height: 170px; }
+.sideview { position: relative; width: 100%; aspect-ratio: 300 / 170; }
 .sideview canvas, .sideview svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.sideview svg rect { touch-action: none; }
+.sideview svg rect, .sideview svg polygon, .sideview svg circle, .sideview svg line { touch-action: none; }
 
 /* ---------- cameras ---------- */
 .cameras { display: flex; flex-direction: column; gap: 8px; padding: 8px; min-height: 0; overflow: auto; }

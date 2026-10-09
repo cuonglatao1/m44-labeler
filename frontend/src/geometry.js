@@ -88,6 +88,23 @@ export function projectBox(box, cam, W = 1600, H = 900, near = 0.1) {
   return { box_id: box.box_id, bbox: [x1, y1, x2, y2], corners_2d: pc.map((p, i) => (front[i] ? toImg(p, cam.cam2img) : null)) }
 }
 
+// Point where the ray through image pixel (u, v) of camera `cam` meets the horizontal plane z = zPlane (LiDAR frame),
+// or null when the ray points away from it (above the horizon) or hits it more than maxDist m away.
+export function pixelToPlane(cam, u, v, zPlane, maxDist = 80) {
+  const K = cam.cam2img, M = cam.lidar2cam
+  const dc = [(u - K[0][2] - K[0][1] * (v - K[1][2]) / K[1][1]) / K[0][0], (v - K[1][2]) / K[1][1], 1]
+  // camera -> LiDAR: R^T, origin = -R^T t
+  const R = [0, 1, 2].map((r) => [M[r][0], M[r][1], M[r][2]])
+  const t = [M[0][3], M[1][3], M[2][3]]
+  const o = [0, 1, 2].map((k) => -(R[0][k] * t[0] + R[1][k] * t[1] + R[2][k] * t[2]))
+  const d = [0, 1, 2].map((k) => R[0][k] * dc[0] + R[1][k] * dc[1] + R[2][k] * dc[2])
+  if (Math.abs(d[2]) < 1e-6) return null
+  const s = (zPlane - o[2]) / d[2]
+  if (s <= 0) return null
+  const p = [o[0] + s * d[0], o[1] + s * d[1], zPlane]
+  return Math.hypot(p[0] - o[0], p[1] - o[1]) > maxDist ? null : p
+}
+
 // typical nuScenes sizes [l, w, h] in m, used for new cuboids
 export const CLASS_SIZES = {
   car: [4.6, 1.9, 1.7], truck: [7.0, 2.5, 3.0], bus: [11.0, 2.9, 3.5], trailer: [10.0, 2.6, 3.8],

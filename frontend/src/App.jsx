@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BoxSelect, Boxes, ChevronLeft, ChevronRight, CircleHelp, CopyPlus, Crosshair, Download, FileJson, Layers, Loader2,
+  PanelLeftClose, PanelLeftOpen,
   Bot, Maximize2, MousePointer2, MoreHorizontal, Moon, Redo2, RotateCcw, Rotate3d, Save, Send, Sparkles, Trash2, TriangleAlert,
   Undo2, UserRound,
 } from 'lucide-react'
@@ -8,10 +9,10 @@ import { api, chatStream, config as fetchConfig, resetChat, suggestFix } from '.
 import { CLASSES, CLASS_COLORS, CLASS_SIZES, COLORS, applyVerdicts, boxColor, boxStatus, groundZ, projectBox } from './geometry.js'
 import BevView from './BevView.jsx'
 import CameraView from './CameraView.jsx'
-import SideView from './SideView.jsx'
+import SideView, { TopView } from './SideView.jsx'
 import Lightbox from './Lightbox.jsx'
 import { AssistantPanel } from './assistant.jsx'
-import { Menu, PilotClock, ShortcutsDialog, Toasts, Tool } from './chrome.jsx'
+import { Menu, PilotClock, ShortcutsDialog, Splitter, Toasts, Tool } from './chrome.jsx'
 import { FrameSummary, Inspector, IssuesPanel, ObjectsPanel, PilotResult, flagKey } from './panels.jsx'
 
 // nuScenes rig layout: front row left->right, back row as seen from behind the car
@@ -34,6 +35,8 @@ const loadPref = (k, d) => { try { return localStorage.getItem(k) ?? d } catch {
 const savePref = (k, v) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 
 const bboxArea = (p) => (p.bbox[2] - p.bbox[0]) * (p.bbox[3] - p.bbox[1])
+const SPLIT_DEFAULT = 0.535, SPLIT_MIN = 0.25, SPLIT_MAX = 0.8   // share of the workspace taken by the BEV
+const SIDE_DEFAULT = 356, SIDE_MIN = 280, SIDE_MAX = 720          // px, side panel
 // object id that links a cuboid drawn here to the same object in other frames (GT cuboids keep the nuScenes token)
 const newInstance = () => `obj_${Math.random().toString(16).slice(2, 12)}`
 // the parts of a check response the UI keeps: camera + LiDAR + temporal flags, matches, QC per cuboid, coverage
@@ -73,6 +76,22 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [lightbox, setLightbox] = useState(null) // camera shown full screen
   const [autoCenter, setAutoCenter] = useState(() => loadPref('m44.autoCenter', '1') === '1')
+  // layout: collapsible tool rail, draggable split BEV | cameras and width of the side panel (remembered)
+  const [railOpen, setRailOpen] = useState(() => loadPref('m44.railOpen', '1') === '1')
+  const [split, setSplit] = useState(() => Number(loadPref('m44.split', SPLIT_DEFAULT)) || SPLIT_DEFAULT)
+  const [sideW, setSideW] = useState(() => Number(loadPref('m44.sideW', SIDE_DEFAULT)) || SIDE_DEFAULT)
+  const workRef = useRef(null)
+  const toggleRail = useCallback(() => setRailOpen((o) => { savePref('m44.railOpen', o ? '0' : '1'); return !o }), [])
+  const dragSplit = useCallback((x) => {
+    const r = workRef.current.getBoundingClientRect()
+    const v = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, (x - r.left) / r.width))
+    setSplit(v); savePref('m44.split', v.toFixed(3))
+  }, [])
+  const dragSide = useCallback((x) => {
+    const v = Math.round(Math.min(Math.min(SIDE_MAX, window.innerWidth * 0.5), Math.max(SIDE_MIN, window.innerWidth - 8 - x - 4)))
+    // (x = pointer on the 8 px handle left of the panel; 8 px page padding on the right)
+    setSideW(v); savePref('m44.sideW', String(v))
+  }, [])
 
   const boxesRef = useRef(boxes)
   boxesRef.current = boxes
@@ -428,6 +447,7 @@ export default function App() {
       if (ctrl && k === 'y') { e.preventDefault(); redo(); return }
       if (ctrl) return
       if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) { setHelpOpen((o) => !o); return }
+      if (e.key === '\\') { toggleRail(); return }
       const step = e.shiftKey ? 0.5 : 0.1
       const rot = (e.shiftKey ? 5 : 1) * DEG
       const move = { w: [step, 0, 0], s: [-step, 0, 0], a: [0, step, 0], d: [0, -step, 0], r: [0, 0, 0.05], f: [0, 0, -0.05] }[k]
@@ -500,11 +520,11 @@ export default function App() {
         : <span className="chip">Chưa gán</span>
 
   const hint = addMode ? <>Bấm lên BEV để đặt cuboid <b style={{ color: CLASS_COLORS[newClass] }}>{newClass}</b> · <kbd>Esc</kbd> huỷ</>
-    : sel ? <>Kéo thân để di chuyển · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> dịch · <kbd>Q</kbd><kbd>E</kbd> xoay · <kbd>R</kbd><kbd>F</kbd> nâng hạ · <kbd>C</kbd> căn giữa</>
+    : sel ? <>Kéo cuboid trên BEV, ảnh camera hoặc khung nhìn từ trên · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> dịch · <kbd>Q</kbd><kbd>E</kbd> xoay · <kbd>R</kbd><kbd>F</kbd> nâng hạ · <kbd>C</kbd> căn giữa</>
       : <>Bấm cuboid để chọn · <kbd>B</kbd> thêm{ASSIST ? <> · <kbd>Shift</kbd><kbd>G</kbd> gợi ý · <kbd>N</kbd> cờ tiếp</> : ''} · <kbd>?</kbd> phím tắt</>
 
   return (
-    <div className="app">
+    <div className="app" style={{ gridTemplateColumns: `${railOpen ? '56px 8px' : '0px 0px'} minmax(0, 1fr) 8px ${sideW}px` }}>
       {/* ---------- top bar ---------- */}
       <header className="topbar">
         <div className="brand">
@@ -572,7 +592,7 @@ export default function App() {
       </header>
 
       {/* ---------- tool rail ---------- */}
-      <nav className="rail">
+      <nav className="rail" style={railOpen ? undefined : { display: 'none' }}>
         <Tool icon={MousePointer2} label="Chọn / chỉnh" keys="V" on={!addMode} onClick={() => setAddMode(false)} />
         <Tool icon={BoxSelect} label="Thêm cuboid" keys="B" on={addMode} onClick={() => setAddMode((m) => !m)} />
         {!PILOT && <Tool icon={CopyPlus} label="Chép cuboid từ frame trước" keys="Ctrl B" disabled={propagating || !frame}
@@ -583,11 +603,15 @@ export default function App() {
         <Tool icon={Rotate3d} label="Xoay 3D" keys="3" on={mode3d} onClick={() => setMode3d((m) => !m)} />
         <span className="grow" />
         <Tool icon={CircleHelp} label="Phím tắt" keys="?" onClick={() => setHelpOpen(true)} />
+        <Tool icon={PanelLeftClose} label="Thu gọn thanh công cụ" keys="\" onClick={toggleRail} />
       </nav>
 
       {/* ---------- workspace ---------- */}
-      <main className="work">
+      <main className="work" ref={workRef} style={{ gridTemplateColumns: `minmax(0, ${split}fr) 8px minmax(0, ${1 - split}fr)` }}>
         <section className="viewport" style={{ cursor: addMode ? 'crosshair' : undefined }}>
+          {!railOpen && (
+            <button className="glass icon-btn rail-open" onClick={toggleRail} title="Mở thanh công cụ (\)"><PanelLeftOpen size={16} /></button>
+          )}
           {frame && <BevView points={points} boxes={boxes} colorOf={colorOf} selected={selected} onSelect={selectBox}
             mode3d={mode3d} addMode={addMode} onGroundClick={onGroundClick} getSelected={getSelected}
             onDragStart={snapshot} onBoxChange={replaceBox} focus={focus} ghost={ghost}
@@ -633,6 +657,10 @@ export default function App() {
           {sel && (
             <div className="overlay bl">
               <div className="sideviews">
+                <div className="glass sidecard">
+                  <div className="side-head"><span>Nhìn từ trên</span><span>đầu xe → · ● kéo để xoay</span></div>
+                  <TopView box={sel} points={points} onDragStart={snapshot} onChange={replaceBox} />
+                </div>
                 {[['side', 'Nhìn ngang', 'đầu xe →'], ['back', 'Nhìn từ sau', '']].map(([v, title, note]) => (
                   <div key={v} className="glass sidecard">
                     <div className="side-head"><span>{title}</span><span>{note}</span></div>
@@ -643,6 +671,9 @@ export default function App() {
             </div>
           )}
         </section>
+
+        <Splitter title="Kéo để đổi kích thước BEV / camera · bấm đúp: mặc định" onDrag={dragSplit}
+          onReset={() => { setSplit(SPLIT_DEFAULT); savePref('m44.split', String(SPLIT_DEFAULT)) }} />
 
         <section className="cameras">
           {frame && (
@@ -663,7 +694,8 @@ export default function App() {
                 <CameraView frameIndex={index} cam={focusCam} proj={proj[focusCam]} flags={flags}
                   dets={ASSIST ? frame.dets : []} colors={colors} selected={selected} onSelect={selectBox}
                   onPropose={proposeOne} label={sel ? sel.cls : null} onBackground={() => setLightbox(focusCam)}
-                  ghost={ghostProj[focusCam]} />
+                  ghost={ghostProj[focusCam]} box={sel} cal={frame.cams[focusCam]} onDragStart={snapshot}
+                  onBoxChange={replaceBox} />
               </div>
               <div className="cam-thumbs">
                 {CAM_GRID.map((cam) => (
@@ -681,6 +713,10 @@ export default function App() {
       </main>
 
       {/* ---------- side panel ---------- */}
+      <div className="side-split">
+        <Splitter title="Kéo để đổi độ rộng panel · bấm đúp: mặc định" onDrag={dragSide}
+          onReset={() => { setSideW(SIDE_DEFAULT); savePref('m44.sideW', String(SIDE_DEFAULT)) }} />
+      </div>
       <aside className="side">
         {pilotRun && <PilotResult run={pilotRun} />}
         <div className="tabs">
@@ -727,6 +763,7 @@ export default function App() {
           cameraProps={{
             frameIndex: index, proj: proj[lightbox], flags, dets: ASSIST ? frame.dets : [], colors, selected,
             onSelect: selectBox, onPropose: proposeOne, label: sel ? sel.cls : null, ghost: ghostProj[lightbox],
+            box: sel, cal: frame.cams[lightbox], onDragStart: snapshot, onBoxChange: replaceBox,
           }} />
       )}
       {helpOpen && <ShortcutsDialog assist={ASSIST} pilot={!!PILOT} onClose={() => setHelpOpen(false)} />}

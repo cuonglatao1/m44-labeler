@@ -47,7 +47,7 @@ thanh công cụ dọc bên trái (chọn `V`, thêm cuboid `B`, gợi ý, căn 
 nhìn ngang nổi ở đáy khi chọn cuboid, cột camera (một camera phóng to tự theo cuboid / cờ đang chọn + 6 ảnh nhỏ),
 panel phải 2 tab **Đối tượng** (nhóm theo class, trạng thái kiểm tra, khoảng cách) / **Kiểm tra** (cờ, ✓ / ✗) và
 bảng thuộc tính có ô nhập số X Y Z, L W H, hướng. Màu cuboid theo class, cuboid có cờ viền đỏ; chuyển sang tô theo
-kết quả kiểm tra ở góc BEV. Chọn cuboid ở bất kỳ đâu (danh sách, ảnh, BEV, cờ) thì BEV trượt tới và phóng vào nó (nút ⌖ ở góc BEV để tắt). Bấm vào ảnh camera lớn (hoặc bấm đúp ảnh nhỏ) mở trình xem toàn màn hình: lăn chuột zoom, kéo để di chuyển, ← → đổi camera, Esc đóng. Thanh trạng thái gợi ý thao tác; `?` mở bảng phím tắt. Icon Lucide, font Inter (đóng
+kết quả kiểm tra ở góc BEV. Chọn cuboid ở bất kỳ đâu (danh sách, ảnh, BEV, cờ) thì BEV trượt tới và phóng vào nó (nút ⌖ ở góc BEV để tắt). Bấm vào ảnh camera lớn (hoặc bấm đúp ảnh nhỏ) mở trình xem toàn màn hình: lăn chuột zoom, kéo để di chuyển, ← → đổi camera, Esc đóng. Thanh trạng thái gợi ý thao tác; `?` mở bảng phím tắt. Kéo đường ranh giữa BEV | camera và camera | panel phải để đổi kích thước (bấm đúp: về mặc định, app nhớ lần sau); `\` hoặc nút cuối thanh công cụ để thu gọn / mở thanh công cụ. Cuboid đang chọn kéo được cả trên ảnh camera (dời trên mặt đất) và trong khung **Nhìn từ trên** dưới BEV (dời, kéo 4 cạnh, chấm xanh để xoay). Icon Lucide, font Inter (đóng
 gói sẵn, chạy offline).
 
 ## Gán nhãn

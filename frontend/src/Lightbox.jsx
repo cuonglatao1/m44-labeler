@@ -58,7 +58,7 @@ export default function Lightbox({ cams, cam, setCam, onClose, cameraProps }) {
           ))}
         </div>
         <span className="grow" />
-        <span className="lb-hint">lăn chuột: zoom · kéo: di chuyển · bấm đúp: vừa khung · <kbd>←</kbd><kbd>→</kbd> đổi camera</span>
+        <span className="lb-hint">lăn chuột: zoom · kéo ảnh: di chuyển · kéo cuboid đang chọn: dời nó · bấm đúp: vừa khung · <kbd>←</kbd><kbd>→</kbd> đổi camera</span>
         <button className="icon-btn" onClick={() => zoomButton(1 / 1.5)} title="Thu nhỏ"><Minus size={16} /></button>
         <span className="lb-zoom">{Math.round(view.s * 100)}%</span>
         <button className="icon-btn" onClick={() => zoomButton(1.5)} title="Phóng to"><Plus size={16} /></button>
