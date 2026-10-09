@@ -2,6 +2,17 @@
 
 Mỗi quyết định kỹ thuật: bối cảnh → quyết định → lý do → hệ quả. Mới nhất ở trên cùng.
 
+## D-020 · v2: khoảng kích thước học từ 700 scene train; "chồng nhau" theo cặp class
+- **Bối cảnh:** D-019 – trên 146 scene val, kích thước phi lý báo nhầm 0,85 / frame (barrier, cọc, trailer, xe công trình:
+  mini có quá ít vật), chồng nhau 0,46 / frame (đầu kéo + rơ-moóc, người đứng sát nhau).
+- **Quyết định:** khoảng kích thước học từ train split của nuScenes đầy đủ (metadata, 944 881 cuboid), độ nới chọn theo
+  10 nhóm scene (×1,225). Chồng nhau: chỉ xe–xe (ngưỡng 0,3), trừ truck/construction_vehicle + trailer; cùng class khác
+  chỉ khi chồng ≥ 60 % (gán trùng).
+- **Lý do:** dùng dữ liệu train lớn hơn cho thứ chỉ cần nhãn; luật chồng nhau dựa trên vật lý (xe là vật cứng; xe kéo có
+  khớp nối; người, cọc, barrier đứng sát nhau là bình thường).
+- **Kết quả (val, nói rõ là sửa sau khi đã thấy val):** báo nhầm 1,39 → 0,25 / frame, recall giữ 98 %. Mini val gần như
+  không đổi.
+
 ## D-019 · Kiểm tra trên 146 scene val nuScenes (dữ liệu mới), tool đóng băng ở commit 0a2e424
 - **Bối cảnh:** mọi số đo trước đó dùng nuScenes-mini (2 scene val, cùng vài vật lặp lại; không có cảnh đêm ở val).
 - **Cách làm:** đóng băng code và ngưỡng (commit `0a2e424`, đã push), chạy một lần trên 146 scene val chính thức (bỏ 4

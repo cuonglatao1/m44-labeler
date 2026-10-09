@@ -62,7 +62,12 @@ DEFAULTS = {
     #   LIDAR_HEADING: [object points, degrees]
     'ground': {'vehicle': [-0.45, 0.45], 'pedestrian': [-0.45, 0.45], 'two_wheeler': [-0.45, 0.45],
                'static': [-0.45, 0.45]},  # FLOATING / SUNKEN: bottom - ground (m)
-    'overlap': 0.3,            # BEV_OVERLAP: intersection / smaller footprint
+    # BEV_OVERLAP (intersection / smaller footprint): two vehicles cannot share space (rigid bodies) ...
+    'overlap': 0.3,
+    # ... except a tractor and its trailer at the hitch; people, bikes, cones and barriers stand close or touch, so for
+    # them only a near-total overlap of two cuboids of the same class counts (the same object labelled twice)
+    'overlap_same': 0.6,
+    'overlap_exempt': [['trailer', 'truck'], ['construction_vehicle', 'trailer']],
     'size': {},                # {cls: {"l": [lo, hi], "w": .., "h": ..}}
     'size_margin': 1.05,
 }
@@ -341,8 +346,21 @@ def _footprint(b: dict) -> Polygon:
     return Polygon(box_corners(b['center'], b['size'], b['yaw'])[:4, :2])
 
 
-def overlaps(boxes: list[dict], thr: float) -> list[tuple[dict, dict, float]]:
-    """Pairs of cuboids whose footprints overlap (intersection / smaller footprint >= thr) and whose heights meet."""
+def pair_threshold(a: dict, b: dict, cfg: dict) -> float | None:
+    """Overlap that makes a BEV_OVERLAP flag for this pair of classes, None = never (see DEFAULTS)."""
+    pair = sorted((a['cls'], b['cls']))
+    if pair in [sorted(p) for p in cfg.get('overlap_exempt', [])]:
+        return None
+    if a['cls'] in VEHICLES and b['cls'] in VEHICLES:
+        return cfg['overlap']
+    if a['cls'] == b['cls']:
+        return cfg.get('overlap_same', cfg['overlap'])
+    return None
+
+
+def overlaps(boxes: list[dict], thr: float, rule: dict | None = None) -> list[tuple[dict, dict, float]]:
+    """Pairs of cuboids whose footprints overlap (intersection / smaller footprint >= thr) and whose heights meet.
+    With `rule` (the QC config) the threshold depends on the pair of classes (pair_threshold) instead."""
     out = []
     polys = [_footprint(b) for b in boxes]
     rad = [math.hypot(*b['size'][:2]) / 2 for b in boxes]
@@ -353,9 +371,12 @@ def overlaps(boxes: list[dict], thr: float) -> list[tuple[dict, dict, float]]:
                 continue
             if a['center'][2] + a['size'][2] < b['center'][2] or b['center'][2] + b['size'][2] < a['center'][2]:
                 continue
+            t = pair_threshold(a, b, rule) if rule is not None else thr
+            if t is None:
+                continue
             inter = polys[i].intersection(polys[j]).area
             frac = inter / max(min(polys[i].area, polys[j].area), 1e-6)
-            if frac >= thr:
+            if frac >= t:
                 out.append((a, b, round(float(frac), 2)))
     return out
 
@@ -440,7 +461,7 @@ def lidar_check(boxes: list[dict], sweep: Sweep, cfg: dict) -> tuple[list[dict],
                              'ground_gap': ev['ground_gap']}
         flags += [{**f, 'box_id': b['box_id'], 'cls_3d': b['cls']} for f in fl]
     # overlap: blame the cuboid with less LiDAR support (the other one probably sits on the object)
-    for a, b, frac in overlaps(boxes, cfg['overlap']):
+    for a, b, frac in overlaps(boxes, cfg['overlap'], rule=cfg):
         ha, hb = info[a['box_id']]['rays'].get('hit', 0), info[b['box_id']]['rays'].get('hit', 0)
         worse, other = (a, b) if ha <= hb else (b, a)
         flags.append({'type': 'BEV_OVERLAP', 'box_id': worse['box_id'], 'cls_3d': worse['cls'], 'other_id': other['box_id'],

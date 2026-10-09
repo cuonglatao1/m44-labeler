@@ -42,7 +42,7 @@ def checks(frames, k, nb, gt_inst, cfg) -> tuple[dict, dict]:
     for b in f['boxes']:
         if lidar_qc.size_outliers(b, cfg):
             out[b['box_id']].add('SIZE_IMPLAUSIBLE')
-    for a, b, _ in lidar_qc.overlaps(f['boxes'], cfg['overlap']):
+    for a, b, _ in lidar_qc.overlaps(f['boxes'], cfg['overlap'], rule=cfg):
         out[a['box_id']].add('BEV_OVERLAP')
         out[b['box_id']].add('BEV_OVERLAP')
     return out, {bid: v['checked'] for bid, v in ti.items()}

@@ -272,6 +272,26 @@ khớp nối – đúng thực tế – rồi người đi bộ đứng sát nha
 
 Chưa đo được trên dữ liệu mới: kiểm tra LiDAR và camera (cần gói dữ liệu cảm biến, chưa tải).
 
+**Bản v2 (sửa sau khi thấy kết quả trên, nên kém khách quan hơn bản v1):**
+
+- *Kích thước phi lý*: khoảng kích thước mỗi class học từ **700 scene train** của nuScenes đầy đủ (chỉ gói metadata,
+  không đụng tới val) thay vì 8 scene mini; độ nới chọn chia scene thành 10 nhóm (ra ×1,225, trước là ×1,4):
+  `python -m labeler.calib_lidar --annotations-from D:/data/nuscenes-trainval`. Ngưỡng LiDAR giữ nguyên.
+- *Chồng nhau*: chỉ báo khi **hai xe** chồng nhau (vật cứng không lồng vào nhau được), trừ đầu kéo + rơ-moóc; người, xe đạp,
+  cọc, barrier chỉ báo khi hai cuboid **cùng class chồng ≥ 60 %** (gán trùng một vật). Trên 700 scene train: 0,01 / frame.
+
+| 146 scene val, nối bằng `instance_token` | v1 | **v2** |
+|---|---|---|
+| báo động giả kích thước phi lý / frame | 0,85 | **0,14** |
+| báo động giả chồng nhau / frame | 0,46 | **0,03** |
+| báo động giả mọi kiểm tra không cần cảm biến / frame | 1,39 | **0,25** (đêm 0,04) |
+| recall mọi lỗi | 98 % | 98 % |
+| recall sai kích thước – riêng kiểm tra kích thước | 48 % | 51 % |
+
+Nối chỉ bằng vị trí: báo động giả 2,14 → 1,00 / frame, recall 92 %. Trên mini val, v2 đổi rất ít: LiDAR bắt 53 % lỗi
+ở cuboid camera không kiểm được (v1 52 %, sai kích thước 65 → 72 %), báo động giả LiDAR 2,93 → 2,88 / frame, cờ chắc chắn
+vẫn 98 % trúng lỗi thật.
+
 ## Xuất
 
 - `Xuất nuScenes` (`GET /api/export?fmt=nuscenes`): mọi frame đã lưu theo định dạng nuScenes detection results (hệ

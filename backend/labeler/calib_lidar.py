@@ -14,7 +14,7 @@ import json
 import math
 import os
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -206,20 +206,28 @@ def _size_bounds(boxes: list[dict]) -> dict:
     return out
 
 
-def calibrate_sizes(frames: list[dict], budget: float) -> tuple[dict, float]:
-    """Class size ranges and the margin around them. nuScenes-mini repeats the same few objects in every frame of a
-    scene, so the margin is chosen leave-one-scene-out: the smallest margin at which the ranges learnt from the other
-    scenes flag at most `budget` of the cuboids of the held-out scene (pooled over scenes)."""
+def calibrate_sizes(frames: list[dict], budget: float, folds: int = 10) -> tuple[dict, float]:
+    """Class size ranges and the margin around them. nuScenes repeats the same objects in every frame of a scene, so the
+    margin is chosen scene-out: the scenes are split in `folds` groups (leave-one-scene-out when there are fewer) and
+    the margin is the smallest at which the ranges learnt from the other groups flag at most `budget` of the cuboids
+    of the held-out group (pooled)."""
     by_scene = defaultdict(list)
     for f in frames:
         by_scene[f['scene']] += f['boxes']
-    held = {s: _size_bounds([b for t, bs in by_scene.items() if t != s for b in bs]) for s in by_scene}
+    names = sorted(by_scene)
+    k = min(folds, len(names))
+    groups = [names[i::k] for i in range(k)]
+    held = []
+    for g in groups:
+        gs = set(g)
+        held.append((_size_bounds([b for t, bs in by_scene.items() if t not in gs for b in bs]),
+                     [b for t in g for b in by_scene[t]]))
     margin = 1.4
     for m in np.arange(1.0, 1.41, 0.025):
         cfg = {'size_margin': float(m)}
         n = bad = 0
-        for s, boxes in by_scene.items():
-            cfg['size'] = held[s]
+        for bounds, boxes in held:
+            cfg['size'] = bounds
             for b in boxes:
                 n += 1
                 bad += bool(lq.size_outliers(b, cfg))
@@ -278,16 +286,59 @@ def report(rows: list[dict], cfg: dict, title: str = '') -> None:
     print(f"{'n':<18}" + ''.join(f'{len(by_kind[k]):>12}' for k in VARIANTS))
 
 
+def overlap_stats(frames: list[dict], cfg: dict) -> dict:
+    """Clean-GT BEV_OVERLAP flags per frame by pair of classes with the class-pair rule (lidar_qc.pair_threshold)."""
+    c = Counter()
+    for f in frames:
+        for a, b, _ in lq.overlaps(f['boxes'], cfg['overlap'], rule=cfg):
+            c['|'.join(sorted((a['cls'], b['cls'])))] += 1
+    return c
+
+
+def relearn_annotation_thresholds(args) -> None:
+    """v2 (D-020): class size ranges + margin from the train split of the full nuScenes (700 scenes) instead of the 8
+    mini scenes; the overlap thresholds checked on the same split. LiDAR thresholds are kept."""
+    from nuscenes.utils.splits import create_splits_scenes
+
+    sp = create_splits_scenes()
+    root = Path(args.annotations_from) / args.annotations_version
+    train = {s['token'] for s in json.loads((root / 'scene.json').read_text(encoding='utf-8')) if s['name'] in sp['train']}
+    samples = {s['token'] for s in json.loads((root / 'sample.json').read_text(encoding='utf-8')) if s['scene_token'] in train}
+    frames = load_frames_nusc(args.annotations_from, 'all', args.annotations_version, samples=samples)
+    print(f"{len(train)} train scenes, {len(frames)} keyframes, {sum(len(f['boxes']) for f in frames)} cuboids")
+    cfg = lq.load_cfg()
+    cfg['size'], cfg['size_margin'] = calibrate_sizes(frames, args.budget)
+    n_fa = sum(1 for f in frames for b in f['boxes'] if lq.size_outliers(b, cfg))
+    print(f"size margin {cfg['size_margin']} (scene folds); on train {n_fa / len(frames):.2f} size flags / frame")
+    ov = overlap_stats(frames, cfg)
+    print(f"overlap flags on train: {sum(ov.values()) / len(frames):.3f} / frame; "
+          + ', '.join(f'{k} {v}' for k, v in ov.most_common(6)))
+    if not args.dry_run:
+        out = {k: v for k, v in cfg.items() if k != 'track'}
+        out['track'] = cfg['track']
+        out['_note'] = (f"LiDAR thresholds: labeler/calib_lidar.py --split train (nuScenes-mini); class sizes: "
+                        f"--annotations-from {args.annotations_version} train split (v2)")
+        lq.CFG_PATH.write_text(json.dumps(out, indent=1), encoding='utf-8')
+        print(f'wrote {lq.CFG_PATH}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--split', default='train', choices=['train', 'val'])
     ap.add_argument('--nusc-root', default=os.environ.get('NUSC_ROOT', 'data/nuscenes'))
     ap.add_argument('--budget', type=float, default=0.005, help='false-alarm rate allowed per check on clean cuboids')
     ap.add_argument('--rows', help='reuse the cuboid measurements pickled by an earlier run')
+    ap.add_argument('--annotations-from', metavar='ROOT',
+                    help='only re-learn the annotation-based thresholds (class sizes, overlap) from the train split of '
+                         'this nuScenes (e.g. D:/data/nuscenes-trainval, metadata is enough) and keep the LiDAR ones')
+    ap.add_argument('--annotations-version', default='v1.0-trainval')
     ap.add_argument('--max-frames', type=int)
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
 
+    if args.annotations_from:
+        relearn_annotation_thresholds(args)
+        return
     frames = load_frames_nusc(args.nusc_root, args.split)[:args.max_frames]
     print(f'{len(frames)} {args.split} frames')
     import pickle
