@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from m44.geometry import project_frame
 from m44.match import DEFAULT_CFG, check, load_cfg
 
-from . import assistant, lidar_qc, track
+from . import assistant, lidar_qc, missing, track
 from .propagate import dismissed_types, new_instance, propagate
 from .qc import rank_flags
 from .dataset import Dataset
@@ -119,7 +119,8 @@ def _run_check(i: int, boxes: list[dict], pilot: str | None = None, assist: bool
     for f in flags:
         f['source'] = 'camera'
     lflags, linfo = lidar_qc.lidar_check(boxes, ds.sweep(i), LQC)
-    tflags, tinfo = track.track_check(frame, boxes, _neighbour_boxes(i, pilot, assist), ds.gt_instance, LQC['track'])
+    neighbours = _neighbour_boxes(i, pilot, assist)
+    tflags, tinfo = track.track_check(frame, boxes, neighbours, ds.gt_instance, LQC['track'])
     best = {}
     for p in proj:
         a = (p['bbox'][2] - p['bbox'][0]) * (p['bbox'][3] - p['bbox'][1])
@@ -128,6 +129,14 @@ def _run_check(i: int, boxes: list[dict], pilot: str | None = None, assist: bool
     for src, fl in (('lidar', lflags), ('track', tflags)):
         for f in fl:
             _, cam, bbox = best.get(f['box_id'], (0, None, None))
+            flags.append({'sample': frame['sample'], 'cam': cam, 'cls_2d': None, 'iou': None, 'p_bbox': bbox,
+                          'det_bbox': None, 'source': src, **f})
+    # objects with no cuboid at all, found without the camera (labeler/missing.py)
+    miss = missing.track_missing(frame, boxes, neighbours, ds.gt_instance, LQC['track'])
+    miss, unboxed = missing.corroborate(miss, frame, ds.sweep(i), flags, LQC)
+    for src, fl in (('track', miss), ('lidar', unboxed)):
+        for f in fl:
+            cam, bbox = missing.best_camera(f['detail']['box'], frame)
             flags.append({'sample': frame['sample'], 'cam': cam, 'cls_2d': None, 'iou': None, 'p_bbox': bbox,
                           'det_bbox': None, 'source': src, **f})
     flags = rank_flags(flags)  # certainty (sources agreeing on the cuboid), sure-first, renumbered

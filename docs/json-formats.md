@@ -32,7 +32,9 @@ Các module chỉ trao đổi qua những file này. Muốn đổi định dạn
 
 Trong app, mỗi cờ có thêm `source`: `camera` (các loại trên), `lidar` (`LIDAR_EMPTY|LIDAR_FREE|LIDAR_SPILL|
 LIDAR_HEADING|SIZE_IMPLAUSIBLE|FLOATING|SUNKEN|BEV_OVERLAP`, `labeler/lidar_qc.py`) hoặc `track` (`TRACK_SIZE|
-TRACK_JUMP|TRACK_YAW|TRACK_CLASS`, `labeler/track.py`). Cờ `lidar` / `track` có `cam` = camera thấy cuboid lớn nhất
+TRACK_JUMP|TRACK_YAW|TRACK_CLASS`, `labeler/track.py`). Vật bị quên gán (`labeler/missing.py`): `TRACK_MISSING`
+(track) và `LIDAR_UNBOXED` (lidar) có `box_id: null`, `group` (`miss:<mã vật>`, chung cho mọi nguồn thấy cùng vật) và
+`detail.box` = cuboid dự đoán. Cờ `lidar` / `track` có `cam` = camera thấy cuboid lớn nhất
 (hoặc `null`), `detail` (số liệu, giá trị sửa) và `msg` (giải thích tiếng Việt); `BEV_OVERLAP` thêm `other_id`.
 Kết quả check của app còn có `qc[box_id]` = `{camera, lidar, track: ok|flagged|none, level: high|medium|flagged|none,
 rays: {rays, hit, pass, occ, none}, n_inside, n_spill, ground_gap, n_obs, pass_xy}` và `coverage` = tỉ lệ cuboid mỗi

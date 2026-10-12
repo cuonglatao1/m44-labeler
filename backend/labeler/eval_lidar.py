@@ -4,7 +4,7 @@ camera check cannot verify.
 Errors with known answers are injected into clean GT with m44.inject (shift 1-2.5 m, size x0.6 / x1.6, turn 90°, class
 swap, delete; 30 % of the cuboids of every class the swap table knows, seed 0) in every frame of the split, so the
 temporal check sees corrupted neighbours too. An error is caught by a method when that method flags its cuboid
-(DELETE: a MISSING_3D flag, camera only). False alarms and coverage are measured on clean GT.
+(DELETE: flagged as missing – camera MISSING_3D, or TRACK_MISSING / LIDAR_UNBOXED from labeler/missing.py). False alarms and coverage are measured on clean GT.
 
   python -m labeler.eval_lidar --split val
 """
@@ -21,7 +21,7 @@ from m44.inject import SWAP_TO, inject
 from m44.loader import load_frames_nusc
 from m44.match import DEFAULT_CFG, check, load_cfg
 
-from . import lidar_qc, track
+from . import lidar_qc, missing, track
 from .calib_lidar import frames_by_scene
 from .eval_fix import apply
 from .fix import suggest
@@ -42,6 +42,9 @@ def run(frames, k, sweep, cfg, lqc, gt_inst, nb, dets) -> dict:
     lf, li = lidar_qc.lidar_check(f['boxes'], sweep, lqc)
     tf, ti = track.track_check(f, f['boxes'], [(frames[j], frames[j]['boxes']) for j in nb[k]], gt_inst, lqc['track'])
     flags += [{**x, 'source': 'lidar', 'cam': None} for x in lf] + [{**x, 'source': 'track', 'cam': None} for x in tf]
+    miss = missing.track_missing(f, f['boxes'], [(frames[j], frames[j]['boxes']) for j in nb[k]], gt_inst, lqc['track'])
+    miss, unboxed = missing.corroborate(miss, f, sweep, flags, lqc)
+    flags += [{**x, 'source': 'track', 'cam': None} for x in miss] + [{**x, 'source': 'lidar', 'cam': None} for x in unboxed]
     flags = rank_flags(flags)
     cam_ok = {m['box_id'] for m in matches} | {x['box_id'] for x in flags if x['source'] == 'camera' and x['box_id']}
     covered = {b['box_id']: {'camera': b['box_id'] in cam_ok, 'lidar': li[b['box_id']]['checked'],
@@ -117,6 +120,19 @@ def main():
                 cover_hard['any'] += cv['lidar'] or cv['track']
 
         gt = {b['box_id']: b for b in fc['boxes']}
+        # deleted cuboids: flagged as missing by which source (labeler/missing.py)?
+        for (smp, bid), etype in err.items():
+            if smp != fc['sample'] or etype != 'DELETE':
+                continue
+            grp = 'camera_ok' if rc['covered'][bid]['camera'] else 'camera_blind'
+            srcs, is_sure = missing.missing_hits(rn['flags'], gt[bid], fc, gt_inst.get(bid))
+            c = caught[(grp, 'DELETE')]
+            c['n'] += 1
+            for src in SOURCES:
+                c[src] += src in srcs
+            c['lidar+track'] += bool(srcs & {'lidar', 'track'})
+            c['all'] += bool(srcs)
+            c['sure'] += is_sure
         by_box = defaultdict(list)
         for x in rn['flags']:
             if x.get('box_id'):
@@ -173,7 +189,7 @@ def main():
         print(f'\nRecall – {title}')
         print(f"  {'error':<12}{'n':>6}{'camera':>9}{'lidar':>8}{'track':>8}{'L+T':>8}{'all':>8}")
         tot = Counter()
-        for etype in ('OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP'):
+        for etype in ('OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP', 'DELETE'):
             c = caught[(grp, etype)]
             tot.update(c)
             print(f"  {etype:<12}{c['n']:>6}" + ''.join(f'{pct(c[s], c["n"]):>{w}}' for s, w in

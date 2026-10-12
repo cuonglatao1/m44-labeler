@@ -600,3 +600,4 @@ body.resizing, body.resizing * { user-select: none !important; cursor: col-resiz
 .inst-field input { font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace; font-size: 11.5px; font-weight: 500; }
 .inst-field label { display: inline-flex; align-items: center; color: var(--track); }
 .carried { font-size: 10.5px; color: var(--text-3); border: 1px dashed var(--line-3); border-radius: 5px; padding: 0 5px; white-space: nowrap; }
+.badge.TRACK_MISSING, .badge.LIDAR_UNBOXED { background: rgba(245, 158, 11, 0.12); color: var(--missing); border-color: rgba(245, 158, 11, 0.2); }

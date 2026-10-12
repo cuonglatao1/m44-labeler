@@ -301,14 +301,19 @@ export default function App() {
   }, [boxes, frame])
   const colorOf = useCallback((b) => boxColor(b, status, ASSIST ? colorBy : 'class', selected), [status, colorBy, selected])
   const colors = useMemo(() => Object.fromEntries(boxes.map((b) => [b.box_id, colorOf(b)])), [boxes, colorOf])
+  // the cuboid a missing-object flag predicts (TRACK_MISSING / LIDAR_UNBOXED, or a MISSING_3D on the same object)
+  const missingGhost = useMemo(() => {
+    const f = check.flags.find((x) => x.flag_id === activeFlag)
+    return f && !f.box_id && f.detail?.box ? { ...f.detail.box, box_id: '__ghost' } : null
+  }, [check.flags, activeFlag])
   const ghost = useMemo(() => {
-    if (!preview) return null
+    if (!preview) return missingGhost
     if (preview.action === 'update') {
       const b = boxes.find((x) => x.box_id === preview.box_id)
       return b ? { ...b, ...preview.box, box_id: '__ghost' } : null
     }
     return preview.action === 'create' ? { ...preview.box, box_id: '__ghost' } : null
-  }, [preview, boxes])
+  }, [preview, boxes, missingGhost])
   const ghostProj = useMemo(() => (ghost && frame
     ? Object.fromEntries(CAM_GRID.map((c) => [c, projectBox(ghost, frame.cams[c])])) : {}), [ghost, frame])
   useEffect(() => {  // previewing: look at it in the BEV and in its camera
@@ -349,6 +354,7 @@ export default function App() {
     setActiveFlag(f.flag_id); setSelected(f.box_id); if (f.cam) setFocusCam(f.cam)
     setTab((t) => (t === 'assistant' ? t : 'issues'))
     if (f.box_id) centerOn(f.box_id)
+    else if (f.detail?.box) setFocus((x) => ({ at: f.detail.box.center, tick: (x?.tick || 0) + 1 }))
   }, [centerOn])
 
   // ---------- assistant ----------
@@ -424,7 +430,7 @@ export default function App() {
     else if (s.action === 'set_class') { snapshot(); replaceBox({ ...b, cls: s.cls }) }
     else if (s.action === 'delete') deleteBox(s.box_id)
     else if (s.action === 'create') {
-      addProposals([{ box_id: `fix_${s.id}`, ...s.box, visibility: null, num_lidar_pts: s.after?.points ?? null, instance: newInstance(),
+      addProposals([{ box_id: `fix_${s.id}`, ...s.box, visibility: null, num_lidar_pts: s.after?.points ?? null, instance: s.box.instance || newInstance(),
         source: 'proposal', proposal: { method: 'fix', fit_iou: s.after?.fit_iou, cam: s.cam } }])
     } else if (s.action === 'dismiss') {
       const f = check.flags.find((g) => g.type === s.flag?.type && (g.box_id ?? null) === (s.flag?.box_id ?? null) && g.cam === s.flag?.cam)
@@ -466,7 +472,13 @@ export default function App() {
         proposeAll()
       } else if (k === 'g') {
         const f = flags.find((x) => x.flag_id === activeFlag)
-        if (f?.type === 'MISSING_3D') proposeOne(f.cam, f.det_bbox, f.cls_2d)
+        if (f?.detail?.box && !f.box_id) {
+          const b = f.detail.box
+          addProposals([{ box_id: `miss_${Date.now().toString(36)}`, cls: b.cls, center: b.center, size: b.size, yaw: b.yaw,
+            visibility: null, num_lidar_pts: f.detail.points ?? null, instance: b.instance || newInstance(),
+            source: 'propagated', propagated: { from: 'interpolated', moved: 0, points: f.detail.points ?? null, motion: true } }])
+          toast(`Tạo ${b.cls} ở vị trí nội suy giữa frame trước và sau`)
+        } else if (f?.type === 'MISSING_3D') proposeOne(f.cam, f.det_bbox, f.cls_2d)
       } else if (k === '1' || k === '2') {
         const f = flags.find((x) => x.flag_id === activeFlag)
         if (f) setVerdict(f, k === '1' ? 'accept' : 'false_alarm')

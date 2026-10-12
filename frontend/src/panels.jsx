@@ -14,6 +14,8 @@ export const FLAG_LABEL = {
   BEV_OVERLAP: 'Chồng nhau',
   // temporal (labeler/track.py)
   TRACK_SIZE: 'Nhảy kích thước', TRACK_JUMP: 'Nhảy vị trí', TRACK_YAW: 'Nhảy hướng', TRACK_CLASS: 'Đổi class',
+  // missing objects without the camera (labeler/missing.py)
+  TRACK_MISSING: 'Thiếu cuboid', LIDAR_UNBOXED: 'Điểm chưa có cuboid',
 }
 
 export const SOURCE = {
@@ -155,7 +157,7 @@ export function IssuesPanel({ flags: allShown, allFlags, feedback, carried, acti
           )
           return [head,
             <div key={f.flag_id} ref={on ? activeRef : null} className={`row flag-row ${sure ? 'sure' : ''} ${on ? 'on' : ''} ${verdict === 'false_alarm' ? 'dim' : ''}`}
-              onClick={() => onPick(f)} style={{ '--bar': f.type === 'MISSING_3D' ? 'var(--missing)' : 'var(--danger)' }}>
+              onClick={() => onPick(f)} style={{ '--bar': !f.box_id ? 'var(--missing)' : 'var(--danger)' }}>
               <div className="flag-line">
               <span className={`badge ${f.type}`}>{FLAG_LABEL[f.type] || f.type}</span>
               <span>{f.cls_3d || f.cls_2d}</span>
@@ -176,7 +178,9 @@ export function IssuesPanel({ flags: allShown, allFlags, feedback, carried, acti
               </div>
               {on && f.msg && <div className="flag-msg">{f.msg}</div>}
               {on && sure && f.sources?.length > 1 && (
-                <div className="flag-msg">Cuboid này bị {f.sources.map((s) => SOURCE[s].label).join(' + ')} cùng gắn cờ.</div>
+                <div className="flag-msg">
+                  {f.box_id ? 'Cuboid này bị' : 'Vật thiếu cuboid này được'} {f.sources.map((s) => SOURCE[s].label).join(' + ')} cùng {f.box_id ? 'gắn cờ' : 'phát hiện'}.
+                </div>
               )}
             </div>]
         })}

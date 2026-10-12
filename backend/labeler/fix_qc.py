@@ -185,6 +185,18 @@ def suggest_qc(flag: dict, boxes: list[dict], sweep: Sweep) -> dict:
     by_id = {b['box_id']: b for b in boxes}
     box = by_id.get(flag.get('box_id'))
     base = {'flag_type': flag['type'], 'box_id': flag.get('box_id'), 'cam': flag.get('cam')}
+    if flag['type'] in ('TRACK_MISSING', 'LIDAR_UNBOXED'):  # labeler/missing.py: create the interpolated cuboid
+        b = (flag.get('detail') or {}).get('box')
+        if not b:
+            return {**base, 'action': 'none', 'summary': 'Không còn thông tin vị trí của vật này.'}
+        new = {**b, 'box_id': '_new'}
+        ev = _evidence_line(new, sweep) if sweep is not None else {'points': None}
+        return {**base, 'action': 'create', 'confidence': 'high' if (ev.get('points') or 0) >= 5 else 'low',
+                'box': _clean({k: b[k] for k in ('cls', 'center', 'size', 'yaw')}) | {'instance': b.get('instance')},
+                'after': {'points': ev.get('points')},
+                'summary': f"Tạo {b['cls']} {b['size'][0]:.1f}×{b['size'][1]:.1f}×{b['size'][2]:.1f} m ở vị trí nội suy "
+                           f"giữa frame trước và frame sau" + (f" ({ev['points']} điểm LiDAR ở đó)." if ev.get('points') is not None else '.')
+                           + ' Giữ mã vật để nối với các frame khác; kiểm lại trên ảnh rồi chỉnh nếu cần.'}
     if box is None:
         return {**base, 'action': 'none', 'summary': 'Cuboid của cờ này không còn trong frame.'}
     t, d = flag['type'], flag.get('detail') or {}

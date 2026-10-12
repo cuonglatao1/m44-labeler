@@ -23,13 +23,13 @@ from pathlib import Path
 from m44.inject import SWAP_TO, inject
 from m44.loader import load_frames_nusc
 
-from . import lidar_qc, track
+from . import lidar_qc, missing, track
 from .calib_lidar import frames_by_scene
 from .eval_propagate import grade
 from .propagate import propagate
 
-TYPES = ('TRACK_SIZE', 'TRACK_JUMP', 'TRACK_YAW', 'TRACK_CLASS', 'SIZE_IMPLAUSIBLE', 'BEV_OVERLAP')
-ERRORS = ('OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP')
+TYPES = ('TRACK_SIZE', 'TRACK_JUMP', 'TRACK_YAW', 'TRACK_CLASS', 'SIZE_IMPLAUSIBLE', 'BEV_OVERLAP', 'TRACK_MISSING')
+ERRORS = ('OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP', 'DELETE')
 
 
 def checks(frames, k, nb, gt_inst, cfg) -> tuple[dict, dict]:
@@ -45,6 +45,10 @@ def checks(frames, k, nb, gt_inst, cfg) -> tuple[dict, dict]:
     for a, b, _ in lidar_qc.overlaps(f['boxes'], cfg['overlap'], rule=cfg):
         out[a['box_id']].add('BEV_OVERLAP')
         out[b['box_id']].add('BEV_OVERLAP')
+    miss = missing.track_missing(f, f['boxes'], [(frames[j], frames[j]['boxes']) for j in nb[k]], gt_inst, cfg['track'])
+    for x in miss:
+        x['source'] = 'track'
+    out['_missing'] = miss
     return out, {bid: v['checked'] for bid, v in ti.items()}
 
 
@@ -101,14 +105,25 @@ def main():
         c = cond[fc['scene']]
         frames_n[c] += 1
         flags_c, checked = checks(clean, k, nb, gt_inst, cfg)
-        for types in flags_c.values():
+        for key_, types in flags_c.items():
+            if key_ == '_missing':
+                fa[c]['TRACK_MISSING'] += len(types)
+                continue
             for t in types:
                 fa[c][t] += 1
         boxes_n[c] += len(fc['boxes'])
         covered[c] += sum(checked.values())
         flags_n, _ = checks(noisy, k, nb, gt_inst, cfg)
         for (smp, bid), etype in err.items():
-            if smp != fc['sample'] or etype == 'DELETE':
+            if smp != fc['sample']:
+                continue
+            if etype == 'DELETE':
+                gt_box = next(b for b in fc['boxes'] if b['box_id'] == bid)
+                srcs, _ = missing.missing_hits(flags_n['_missing'], gt_box, fc, gt_inst.get(bid))
+                cc = caught[(c, etype)]
+                cc['n'] += 1
+                cc['temporal'] += bool(srcs)
+                cc['any'] += bool(srcs)
                 continue
             types = flags_n.get(bid, set())
             cc = caught[(c, etype)]
