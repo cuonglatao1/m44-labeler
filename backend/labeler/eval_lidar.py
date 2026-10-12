@@ -25,12 +25,14 @@ from . import lidar_qc, missing, track
 from .calib_lidar import frames_by_scene
 from .eval_fix import apply
 from .fix import suggest
+from .inject_subtle import inject_subtle
 from .propose import Sweep
 from .qc import rank_flags
 from .score import same_object
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ('camera', 'lidar', 'track')
+ORDER = ['OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP', 'DELETE', 'SHIFT', 'YAW', 'FLIP', 'LENGTH', 'HEIGHT', 'CONFUSE']
 
 
 def run(frames, k, sweep, cfg, lqc, gt_inst, nb, dets) -> dict:
@@ -62,6 +64,8 @@ def main():
     ap.add_argument('--nusc-root', default=os.environ.get('NUSC_ROOT', 'data/nuscenes'))
     ap.add_argument('--max-frames', type=int)
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--errors', choices=['m44', 'subtle'], default='m44',
+                    help='m44: the large M44 errors (m44.inject); subtle: small human-like ones (labeler/inject_subtle.py)')
     ap.add_argument('--json', help='also write the numbers here')
     ap.add_argument('--no-instance', action='store_true',
                     help='hide the nuScenes instance tokens: the temporal check links cuboids by position only, as for '
@@ -72,7 +76,11 @@ def main():
     lqc = lidar_qc.load_cfg()
     clean = load_frames_nusc(args.nusc_root, args.split)[:args.max_frames]
     eligible = {b['box_id'] for f in clean for b in f['boxes'] if b['cls'] in SWAP_TO}
-    noisy, injected = inject(clean, eligible, seed=args.seed)
+    if args.errors == 'subtle':
+        noisy, injected = inject_subtle(clean, eligible, seed=args.seed)
+    else:
+        noisy, injected = inject(clean, eligible, seed=args.seed)
+    etypes = [t for t in ORDER if any(e['type'] == t for e in injected)]
     err = {(e['sample'], e['box_id']): e['type'] for e in injected}
     gt_inst = {b['box_id']: b['instance'] for f in clean for b in f['boxes']}
     if args.no_instance:
@@ -172,7 +180,7 @@ def main():
             print(f'  {k + 1}/{len(clean)} frames', flush=True)
 
     nf = len(clean)
-    print(f'\n{nf} {args.split} frames, {n_boxes} GT cuboids, {len(injected)} injected errors (seed {args.seed})'
+    print(f'\n{nf} {args.split} frames, {n_boxes} GT cuboids, {len(injected)} injected {args.errors} errors (seed {args.seed})'
           + (', objects linked by position only' if args.no_instance else '') + '\n')
     print('Coverage on clean GT (share of cuboids a source can judge)')
     print(f"  all cuboids          camera {pct(cover['camera'], n_boxes)}  lidar {pct(cover['lidar'], n_boxes)}  "
@@ -189,7 +197,7 @@ def main():
         print(f'\nRecall – {title}')
         print(f"  {'error':<12}{'n':>6}{'camera':>9}{'lidar':>8}{'track':>8}{'L+T':>8}{'all':>8}")
         tot = Counter()
-        for etype in ('OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP', 'DELETE'):
+        for etype in etypes:
             c = caught[(grp, etype)]
             tot.update(c)
             print(f"  {etype:<12}{c['n']:>6}" + ''.join(f'{pct(c[s], c["n"]):>{w}}' for s, w in

@@ -101,6 +101,36 @@ khoảng nhìn từ 1,1 s lên 1,6 s không thêm được gì.
 Với mọi loại lỗi gộp lại (cả xoá), mini val: 98 % trên cuboid camera kiểm được, 93 % trên cuboid camera không kiểm được;
 146 scene mới: 93 %.
 
+## 3c. Lỗi nhỏ giống người thật (bản v3)
+
+Lỗi của M44 cố ý lớn (dời 1–2,5 m, ×0,6 / ×1,6, xoay 90°). Người gán thật hay sai nhỏ, nên có thêm bộ lỗi
+`labeler/inject_subtle.py` (`--errors subtle`): lệch 0,3–0,6 m, xoay 10–20°, quay ngược đầu 180°, chiều dài ×0,75 / ×1,3,
+đáy nâng / hạ 0,25 m, nhầm class gần (car ↔ truck, bus → truck, xe đạp ↔ xe máy). Một số lỗi nằm trong dung sai "đúng"
+của pilot nhưng vẫn là lỗi người duyệt muốn thấy.
+
+Bản v2 bắt lỗi nhỏ kém (146 scene mới: 54 % – lệch 28 %, xoay 39 %, **độ cao 2 %**). Bản v3 (sửa **sau khi** thấy kết quả
+này): thêm kiểm tra **Nhảy độ cao** (đáy so với chính vật đó ở frame bên cạnh) và **học lại ngưỡng thời gian trên 700
+scene train** của nuScenes đầy đủ, ngân sách báo nhầm 0,5 % mỗi kiểm tra như mọi kiểm tra khác (hướng 15° → 5°, kích
+thước 10 % → 5 %, độ cao 0,12–0,15 m, vị trí xe 0,46 m, người 0,22 m):
+`python -m labeler.calib_lidar --annotations-from D:/data/nuscenes-trainval --temporal-budget 0.005`.
+
+| lỗi nhỏ, recall | 146 scene mới v2 | **146 scene mới v3** | mini val v3, camera không thấy |
+|---|---|---|---|
+| lệch 0,3–0,6 m | 28 % | **65 %** | 74 % |
+| xoay 10–20° | 39 % | **93 %** | 96 % |
+| quay ngược 180° | 91 % | **91 %** | 92 % |
+| chiều dài ×0,75 / ×1,3 | 100 % | **100 %** | 100 % |
+| đáy ±0,25 m | 2 % | **80 %** | 78 % |
+| nhầm class gần | 98 % | **98 %** | 98 % |
+| **mọi lỗi nhỏ** | 54 % | **85 %** (đêm 84 %) | 87 % |
+
+Lỗi lớn của M44 không giảm (146 scene mới, kể cả xoá: 94 %; mini val camera không thấy: 93 %).
+
+**Cái giá:** báo nhầm theo thời gian trên GT sạch tăng từ 0,08 lên **0,42 / frame** (146 scene mới; nhảy vị trí 0,18,
+nhảy độ cao 0,17, thiếu cuboid 0,06, nhảy hướng 0,02); mini val 0,07 → 0,31. Mọi kiểm tra không cần cảm biến cộng lại:
+0,59 / frame (đêm 0,15). Nối chỉ bằng vị trí (không có mã vật): báo nhầm 2,0 / frame, recall lỗi nhỏ 82 %. Cờ nhóm
+"Chắc chắn" vẫn trúng lỗi thật 97 % với lỗi lớn, 90 % với lỗi nhỏ (0,16 báo nhầm / frame).
+
 ## 4. Gợi ý sửa
 
 Áp dụng gợi ý cho mỗi lỗi bị cờ rồi chấm theo luật "đúng".
@@ -176,8 +206,8 @@ Trong thư mục `backend` (`NUSC_ROOT` trỏ tới nuScenes-mini):
 ```bash
 python -m labeler.calib_lidar --split train                                   # ngưỡng LiDAR + thời gian (~6 phút)
 python -m labeler.calib_lidar --annotations-from D:/data/nuscenes-trainval    # v2: kích thước + chồng nhau
-python -m labeler.eval_lidar --split val [--no-instance]                      # mục 3, 4
-python -m labeler.eval_heldout --nusc-root D:/data/nuscenes-trainval [--no-instance]   # mục 2
+python -m labeler.eval_lidar --split val [--no-instance] [--errors subtle]  # mục 3, 3c, 4
+python -m labeler.eval_heldout --nusc-root D:/data/nuscenes-trainval [--no-instance] [--errors subtle]   # mục 2, 3c
 python -m labeler.eval_propagate --split val [--chain 5]                      # mục 5
 python -m labeler.eval_effort --split val [--shift-g first]                 # mục 5b
 python -m labeler.eval_fix --split val                                        # mục 4, gợi ý camera
@@ -187,7 +217,7 @@ python -m labeler.eval_assist --split val                                     # 
 
 ## 8. Giới hạn
 
-- Mọi lỗi là lỗi **cài tổng hợp**; lỗi của người gán thật (lệch nhỏ, nhầm car ↔ truck, bỏ sót vật bị che) chưa được đo –
+- Mọi lỗi là lỗi **cài tổng hợp** (có cả bộ lỗi nhỏ, mục 3c); lỗi của người gán thật (lệch nhỏ, nhầm car ↔ truck, bỏ sót vật bị che) chưa được đo –
   cần pilot với người thật ([PILOT_APP.md](PILOT_APP.md)).
 - Kiểm tra LiDAR và camera mới chỉ đo trên mini (2 scene val); ngưỡng LiDAR học từ 8 scene.
 - Frame nguồn khi đo chép cuboid là GT (rất mượt); với nhãn người gán, tỉ lệ đúng sẽ thấp hơn.

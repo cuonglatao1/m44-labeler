@@ -26,10 +26,11 @@ from m44.loader import load_frames_nusc
 from . import lidar_qc, missing, track
 from .calib_lidar import frames_by_scene
 from .eval_propagate import grade
+from .inject_subtle import inject_subtle
 from .propagate import propagate
 
 TYPES = ('TRACK_SIZE', 'TRACK_JUMP', 'TRACK_YAW', 'TRACK_CLASS', 'SIZE_IMPLAUSIBLE', 'BEV_OVERLAP', 'TRACK_MISSING')
-ERRORS = ('OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP', 'DELETE')
+ORDER = ['OFFSET', 'SCALE', 'ROTATE', 'CLASS_SWAP', 'DELETE', 'SHIFT', 'YAW', 'FLIP', 'LENGTH', 'HEIGHT', 'CONFUSE']
 
 
 def checks(frames, k, nb, gt_inst, cfg) -> tuple[dict, dict]:
@@ -63,6 +64,8 @@ def main():
     ap.add_argument('--no-instance', action='store_true')
     ap.add_argument('--max-scenes', type=int)
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--errors', choices=['m44', 'subtle'], default='m44',
+                    help='m44: the large M44 errors (m44.inject); subtle: small human-like ones (labeler/inject_subtle.py)')
     ap.add_argument('--json', help='also write the numbers here')
     args = ap.parse_args()
 
@@ -87,7 +90,11 @@ def main():
 
     cfg = lidar_qc.load_cfg()
     eligible = {b['box_id'] for f in clean for b in f['boxes'] if b['cls'] in SWAP_TO}
-    noisy, injected = inject(clean, eligible, seed=args.seed)
+    if args.errors == 'subtle':
+        noisy, injected = inject_subtle(clean, eligible, seed=args.seed)
+    else:
+        noisy, injected = inject(clean, eligible, seed=args.seed)
+    etypes = [t for t in ORDER if any(e['type'] == t for e in injected)]
     err = {(e['sample'], e['box_id']): e['type'] for e in injected}
     gt_inst = {b['box_id']: b['instance'] for f in clean for b in f['boxes']}
     if args.no_instance:
@@ -160,7 +167,7 @@ def main():
               + f"{sum(fa[c][t] for c in conds) / sum(frames_n.values()):>10.2f}")
     print(f"{'FA / frame, all these checks':<34}" + ''.join(f'{sum(fa[c].values()) / frames_n[c]:>10.2f}' for c in conds)
           + f"{sum(sum(fa[c].values()) for c in conds) / sum(frames_n.values()):>10.2f}")
-    for e in ERRORS:
+    for e in etypes:
         for src in ('temporal', 'size_overlap', 'any'):
             row = [caught[(c, e)] for c in conds]
             tot = Counter()
@@ -172,7 +179,7 @@ def main():
     for v in caught.values():
         tot_all.update(v)
     print(f"{'recall all errors (any)':<34}" + ''.join(
-        f"{pct(sum(caught[(c, e)]['any'] for e in ERRORS), sum(caught[(c, e)]['n'] for e in ERRORS)):>10}" for c in conds)
+        f"{pct(sum(caught[(c, e)]['any'] for e in etypes), sum(caught[(c, e)]['n'] for e in etypes)):>10}" for c in conds)
         + f"{pct(tot_all['any'], tot_all['n']):>10}")
     if copy:
         print('\ncopy from the previous frame (Ctrl+B, ego motion + velocity), share of copies of objects still annotated:')

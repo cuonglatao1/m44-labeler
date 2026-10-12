@@ -11,6 +11,7 @@ compensation (every frame carries its LiDAR -> global pose).
                wrong neighbour does not raise a flag on a correct cuboid)
   TRACK_YAW    heading off the predicted one (vehicles and two-wheelers; catches 180° flips the cameras cannot see)
   TRACK_CLASS  class differs from the class the object has in most other frames
+  TRACK_HEIGHT bottom off the predicted height (a cuboid raised / sunk while its neighbours sit on the ground)
 
 Each flag carries the corrected value (median size / predicted pose / majority class) for the fix suggestion.
 Thresholds: configs/lidar_qc.json key "track" (labeler/calib_lidar.py, percentiles of clean train GT).
@@ -31,7 +32,13 @@ DEFAULTS = {
     'extrap_scale': 2.0,   # an extrapolated prediction is this much less precise than an interpolated one
     'yaw_deg': 25.0,
     'class_share': 0.7,
+    'z_m': {'vehicle': 0.2, 'pedestrian': 0.2, 'two_wheeler': 0.2, 'static': 0.2},  # TRACK_HEIGHT
 }
+
+
+def _thr(v, g: str) -> float:
+    """A threshold given for every class group ({group: value}) or as one number."""
+    return v[g] if isinstance(v, dict) else v
 
 
 def _pose(box: dict, T: np.ndarray) -> tuple[np.ndarray, float]:
@@ -139,6 +146,9 @@ def track_stats(box: dict, obs: list[dict], cfg: dict) -> dict:
         by = min(preds, key=lambda p: abs(_wrap(box['yaw'] - p[1])))
         raw_yaw = abs(math.degrees(_wrap(box['yaw'] - by[1])))
         st['yaw_gap'], st['yaw_raw'], st['pred_yaw'] = round(raw_yaw / scale, 1), round(raw_yaw, 1), round(float(by[1]), 4)
+        bz = min(preds, key=lambda p: abs(cur[2] - p[0][2]))
+        raw_z = float(cur[2] - bz[0][2])
+        st['z_gap'], st['z_raw'], st['pred_z'] = round(abs(raw_z) / scale, 3), round(raw_z, 2), round(float(bz[0][2]), 3)
     return st
 
 
@@ -147,7 +157,7 @@ def judge(box: dict, st: dict, cfg: dict) -> tuple[list[dict], bool]:
         return [], False
     g = group(box['cls'])
     flags = []
-    if st['size_dev'] > cfg['size_dev']:
+    if st['size_dev'] > _thr(cfg['size_dev'], g):
         m = st['med_size']
         flags.append({'type': 'TRACK_SIZE', 'detail': {'dev': st['size_dev'], 'med_size': m, 'n_obs': st['n_obs']},
                       'msg': f"Kích thước {box['size'][0]:.2f}×{box['size'][1]:.2f}×{box['size'][2]:.2f} m lệch "
@@ -158,10 +168,15 @@ def judge(box: dict, st: dict, cfg: dict) -> tuple[list[dict], bool]:
         flags.append({'type': 'TRACK_JUMP', 'detail': {'jump_m': st['jump_raw'], 'pred_center': st['pred_center'],
                                                         'pred_kind': st['pred_kind']},
                       'msg': f"Vị trí lệch {st['jump_raw']:.1f} m so với quỹ đạo của vật ({how}) – cuboid bị dời nhầm."})
-    if (box['cls'] in VEHICLES or box['cls'] in TWO_WHEEL) and 'yaw_gap' in st and st['yaw_gap'] > cfg['yaw_deg']:
+    if (box['cls'] in VEHICLES or box['cls'] in TWO_WHEEL) and 'yaw_gap' in st and st['yaw_gap'] > _thr(cfg['yaw_deg'], g):
         flags.append({'type': 'TRACK_YAW', 'detail': {'gap_deg': st['yaw_raw'], 'pred_yaw': st['pred_yaw']},
                       'msg': f"Hướng lệch {st['yaw_raw']:.0f}° so với hướng của vật ở các frame bên cạnh"
                              + (' – có thể bị quay ngược đầu.' if st['yaw_raw'] > 150 else '.')})
+    if 'z_gap' in st and st['z_gap'] > _thr(cfg.get('z_m', DEFAULTS['z_m']), g):
+        up = st['z_raw'] > 0
+        flags.append({'type': 'TRACK_HEIGHT', 'detail': {'dz_m': st['z_raw'], 'pred_z': st['pred_z']},
+                      'msg': f"Đáy cuboid {'cao' if up else 'thấp'} hơn {abs(st['z_raw']):.2f} m so với chính vật này ở các "
+                             f"frame bên cạnh – cuboid bị {'nâng lên' if up else 'hạ xuống'} nhầm."})
     if st['major_cls'] != box['cls'] and st['major_share'] >= cfg['class_share'] and st['n_obs'] >= cfg['min_obs']:
         flags.append({'type': 'TRACK_CLASS', 'detail': {'major_cls': st['major_cls'], 'share': st['major_share']},
                       'msg': f"Vật này là {st['major_cls']} ở {st['major_share']:.0%} các frame khác, ở đây lại là {box['cls']}."})

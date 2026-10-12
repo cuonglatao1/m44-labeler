@@ -2,6 +2,16 @@
 
 Mỗi quyết định kỹ thuật: bối cảnh → quyết định → lý do → hệ quả. Mới nhất ở trên cùng.
 
+## D-023 · v3: lỗi nhỏ giống người thật; kiểm tra độ cao; ngưỡng thời gian học từ 700 scene train
+- **Bối cảnh:** số 98–99 % đo bằng lỗi lớn của M44. Với lỗi nhỏ (`inject_subtle.py`) bản v2 chỉ bắt 54 % trên 146 scene
+  mới: lệch 28 %, xoay 39 %, sai độ cao đáy 2 % (không kiểm tra nào so độ cao theo thời gian; ngưỡng thời gian là mức sàn
+  đặt tay trên mini).
+- **Quyết định:** thêm TRACK_HEIGHT; học ngưỡng thời gian (vị trí, hướng, độ cao, kích thước theo nhóm class) trên 700
+  scene train của nuScenes đầy đủ với ngân sách 0,5 % / kiểm tra (cùng quy ước với LiDAR), sàn nhỏ cho độ rung tay.
+- **Kết quả (146 scene mới, sửa sau khi đã thấy v2 ở đây):** lỗi nhỏ 54 % → 85 %, lỗi lớn giữ 94 %; báo nhầm theo thời
+  gian 0,08 → 0,42 / frame (không có mã vật 2,0 / frame).
+- **Đánh đổi chấp nhận:** báo nhầm tăng nhưng phần lớn rơi vào nhóm "Cần xem"; nhóm "Chắc chắn" vẫn 97 % / 90 % đúng.
+
 ## D-022 · Đo công sức bằng người gán mô phỏng thay cho pilot người thật
 - **Bối cảnh:** còn 2 tuần, nhóm khó tổ chức pilot; cần số cho câu "tool giúp gán nhanh hơn bao nhiêu".
 - **Quyết định:** `labeler/eval_effort.py` mô phỏng gán cả scene từ đầu bằng chính các công cụ của app (Shift+G, Ctrl+B),

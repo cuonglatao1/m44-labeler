@@ -295,6 +295,38 @@ def overlap_stats(frames: list[dict], cfg: dict) -> dict:
     return c
 
 
+TEMPORAL_FLOORS = {'jump_m': 0.15, 'yaw_deg': 5.0, 'z_m': 0.08, 'size_dev': 0.05}
+
+
+def calibrate_temporal(frames: list[dict], tcfg: dict, budget: float) -> dict:
+    """Temporal thresholds per class group from clean annotations (objects linked by instance token): the
+    (1 - budget) quantile of how far each cuboid is from the best prediction (position, heading, height) and from the
+    median size of its track, with small floors for an annotator's normal jitter."""
+    nb = frames_by_scene(frames)
+    gt_inst = {b['box_id']: b['instance'] for f in frames for b in f['boxes']}
+    vals = defaultdict(lambda: defaultdict(list))
+    for k, f in enumerate(frames):
+        obs = tr.observations(f, f['boxes'], [(frames[j], frames[j]['boxes']) for j in nb[k]], gt_inst)
+        for b in f['boxes']:
+            st = tr.track_stats(b, obs[b['box_id']], tcfg)
+            g = lq.group(b['cls'])
+            for key, name in (('jump', 'jump_m'), ('yaw_gap', 'yaw_deg'), ('z_gap', 'z_m'), ('size_dev', 'size_dev')):
+                if key in st and (name != 'yaw_deg' or b['cls'] in lq.VEHICLES or b['cls'] in lq.TWO_WHEEL):
+                    vals[name][g].append(st[key])
+        if (k + 1) % 5000 == 0:
+            print(f'  temporal stats: {k + 1}/{len(frames)} frames', flush=True)
+    out = dict(tcfg)
+    for name, by_g in vals.items():
+        out[name] = {}
+        for g in GROUPS:
+            v = by_g.get(g, [])
+            q = float(np.quantile(v, 1 - budget)) if len(v) >= 200 else None
+            out[name][g] = round(max(q if q is not None else TEMPORAL_FLOORS[name] * 3, TEMPORAL_FLOORS[name]), 3)
+    print('temporal thresholds (budget %.3f per check):' % budget,
+          {k: out[k] for k in ('jump_m', 'yaw_deg', 'z_m', 'size_dev')})
+    return out
+
+
 def relearn_annotation_thresholds(args) -> None:
     """v2 (D-020): class size ranges + margin from the train split of the full nuScenes (700 scenes) instead of the 8
     mini scenes; the overlap thresholds checked on the same split. LiDAR thresholds are kept."""
@@ -313,6 +345,7 @@ def relearn_annotation_thresholds(args) -> None:
     ov = overlap_stats(frames, cfg)
     print(f"overlap flags on train: {sum(ov.values()) / len(frames):.3f} / frame; "
           + ', '.join(f'{k} {v}' for k, v in ov.most_common(6)))
+    cfg['track'] = calibrate_temporal(frames, cfg['track'], args.temporal_budget)
     if not args.dry_run:
         out = {k: v for k, v in cfg.items() if k != 'track'}
         out['track'] = cfg['track']
@@ -332,6 +365,8 @@ def main():
                     help='only re-learn the annotation-based thresholds (class sizes, overlap) from the train split of '
                          'this nuScenes (e.g. D:/data/nuscenes-trainval, metadata is enough) and keep the LiDAR ones')
     ap.add_argument('--annotations-version', default='v1.0-trainval')
+    ap.add_argument('--temporal-budget', type=float, default=0.002,
+                    help='with --annotations-from: false-alarm rate allowed per temporal check on clean cuboids')
     ap.add_argument('--max-frames', type=int)
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()

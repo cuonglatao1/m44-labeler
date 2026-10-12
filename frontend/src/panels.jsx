@@ -13,7 +13,7 @@ export const FLAG_LABEL = {
   LIDAR_HEADING: 'Lệch hướng điểm', SIZE_IMPLAUSIBLE: 'Kích thước phi lý', FLOATING: 'Lơ lửng', SUNKEN: 'Chìm',
   BEV_OVERLAP: 'Chồng nhau',
   // temporal (labeler/track.py)
-  TRACK_SIZE: 'Nhảy kích thước', TRACK_JUMP: 'Nhảy vị trí', TRACK_YAW: 'Nhảy hướng', TRACK_CLASS: 'Đổi class',
+  TRACK_SIZE: 'Nhảy kích thước', TRACK_JUMP: 'Nhảy vị trí', TRACK_YAW: 'Nhảy hướng', TRACK_CLASS: 'Đổi class', TRACK_HEIGHT: 'Nhảy độ cao',
   // missing objects without the camera (labeler/missing.py)
   TRACK_MISSING: 'Thiếu cuboid', LIDAR_UNBOXED: 'Điểm chưa có cuboid',
 }

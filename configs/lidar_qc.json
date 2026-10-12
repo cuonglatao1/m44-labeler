@@ -231,16 +231,32 @@
  "size_margin": 1.225,
  "track": {
   "min_obs": 2,
-  "size_dev": 0.1,
+  "size_dev": {
+   "vehicle": 0.05,
+   "pedestrian": 0.05,
+   "two_wheeler": 0.05,
+   "static": 0.05
+  },
   "jump_m": {
-   "vehicle": 0.59,
-   "pedestrian": 0.4,
-   "two_wheeler": 0.5,
-   "static": 0.4
+   "vehicle": 0.46,
+   "pedestrian": 0.22,
+   "two_wheeler": 0.41,
+   "static": 0.18
   },
   "extrap_scale": 2.0,
-  "yaw_deg": 15.0,
-  "class_share": 0.7
+  "yaw_deg": {
+   "vehicle": 5.0,
+   "pedestrian": 15.0,
+   "two_wheeler": 5.0,
+   "static": 15.0
+  },
+  "class_share": 0.7,
+  "z_m": {
+   "vehicle": 0.15,
+   "pedestrian": 0.143,
+   "two_wheeler": 0.132,
+   "static": 0.12
+  }
  },
  "_note": "LiDAR thresholds: labeler/calib_lidar.py --split train (nuScenes-mini); class sizes: --annotations-from v1.0-trainval train split (v2)"
 }

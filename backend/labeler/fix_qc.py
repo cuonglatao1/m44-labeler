@@ -217,6 +217,9 @@ def suggest_qc(flag: dict, boxes: list[dict], sweep: Sweep) -> dict:
     if t == 'TRACK_YAW':
         new = {**box, 'yaw': float(d['pred_yaw'])}
         return _update(base, box, new, sweep, 'Xoay theo hướng của vật ở các frame bên cạnh.')
+    if t == 'TRACK_HEIGHT':
+        new = {**box, 'center': [box['center'][0], box['center'][1], float(d['pred_z'])]}
+        return _update(base, box, new, sweep, 'Đặt đáy cuboid về độ cao của vật ở các frame bên cạnh.')
     if t == 'TRACK_CLASS':
         return {**base, 'action': 'set_class', 'cls': d['major_cls'], 'before': {'cls': box['cls']},
                 'summary': f"Ở {d['share']:.0%} các frame khác vật này là {d['major_cls']}. Đổi class sang {d['major_cls']}."}

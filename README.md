@@ -53,7 +53,7 @@ M44 Labeler kiểm chúng bằng một chuỗi bổ sung cho nhau:
 - Camera: lệch vị trí, sai kích thước, sai class, không khớp ảnh, thiếu cuboid.
 - LiDAR: cuboid rỗng, lấn khoảng trống, điểm tràn ra ngoài, lệch hướng so với đám điểm, kích thước phi lý, lơ lửng / chìm,
   chồng nhau.
-- Thời gian: nhảy vị trí, nhảy kích thước, nhảy hướng (bắt cả quay ngược 180°), đổi class giữa các frame.
+- Thời gian: nhảy vị trí, nhảy kích thước, nhảy hướng (bắt cả quay ngược 180°), nhảy độ cao, đổi class giữa các frame.
 - **Vật bị quên gán**, kể cả khi camera không thấy: vật có ở frame trước và sau mà frame này thiếu (thời gian), xác nhận
   bằng điểm LiDAR ở chỗ đó; gợi ý tạo cuboid ở vị trí nội suy (phím `G`).
 - Cờ được chia **Chắc chắn** (≥ 2 nguồn cùng báo – trúng lỗi thật 98 %) / **Cần xem** (1 nguồn); mỗi cuboid có **mức tin
@@ -79,6 +79,7 @@ và cách chạy lại ở [docs/EVALUATION.md](docs/EVALUATION.md).
 | vật bị quên gán mà camera không thấy được phát hiện (mini val) | 7 % | **70 %** |
 | lỗi bắt được, 146 scene val **mới** (ngày / mưa / **đêm**)¹ | – | **98 % / 98 % / 99 %** |
 | vật bị quên gán được phát hiện, 146 scene mới¹ | – | **77 %** (0,06 báo nhầm / frame) |
+| lỗi **nhỏ** giống người thật (lệch 0,3–0,6 m, xoay 10–20°, quay ngược, sai dài / cao 25 %), 146 scene mới¹ | – | **85 %** |
 | cờ nhóm "Chắc chắn" trúng lỗi thật (mini val) | – | **98 %** (0,14 báo nhầm / frame) |
 | cuboid chép sang frame sau đúng ngay, 146 scene mới | – | **97 %** |
 | gán cả scene từ đầu (người gán mô phỏng, mini val): thao tác tay so với vẽ tay mọi vật | 100 % | **9 %** (tool đặt đúng ngay 94 % cuboid) |
@@ -252,7 +253,9 @@ Sửa code backend thì phải chạy lại `run_app.bat` (đóng cửa sổ cũ
 ## Giới hạn và lộ trình
 
 **Giới hạn hiện tại**
-- Số đo dùng lỗi **cài tổng hợp**; lỗi của người gán thật chưa được đo (pilot đang chuẩn bị).
+- Số đo dùng lỗi **cài tổng hợp** (cả bộ lỗi nhỏ giống người thật); lỗi của người gán thật chưa được đo.
+- Kiểm tra theo thời gian chặt hơn từ bản v3: bắt lỗi nhỏ tốt hơn nhiều nhưng báo nhầm ~0,4 / frame (~2 / frame khi
+  cuboid không có mã vật – nên dùng Ctrl+B).
 - Kiểm tra LiDAR và camera mới được đo trên nuScenes-mini; kiểm tra LiDAR còn báo nhầm khá nhiều (~2,9 / frame, chủ yếu
   xe tối màu cho tia laser xuyên qua) – nhóm cờ "Chắc chắn" che phần lớn nhược điểm này.
 - Chỉ hỗ trợ nuScenes (một LiDAR 32 tia + 6 camera); Windows được kiểm nhiều nhất.
