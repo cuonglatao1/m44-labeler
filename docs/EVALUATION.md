@@ -1,0 +1,150 @@
+# Đánh giá
+
+Toàn bộ số liệu của M44 Labeler, cách đo và cách chạy lại. Tóm tắt nằm ở [README](../README.md#kết-quả-chính).
+
+## 1. Giao thức
+
+- **Dữ liệu.** Chỉnh ngưỡng trên **nuScenes-mini train** (8 scene, 323 keyframe). Đo trên **nuScenes-mini val** (2 scene,
+  81 keyframe) và trên **146 scene val của nuScenes đầy đủ** (150 scene val chính thức trừ 4 scene có trong mini;
+  5857 keyframe, 180 421 cuboid; 107 ngày, 24 mưa, 15 đêm). Không bộ đo nào được dùng khi chỉnh, trừ chỗ ghi rõ (bản v2).
+- **Lỗi có đáp án.** Cài vào GT sạch bằng `m44.inject` (như repo M44): dời 1–2,5 m, kích thước ×0,6 / ×1,6, xoay 90°
+  (chỉ vật dài), đổi class (xe ↔ người), xoá; 30 % cuboid mỗi frame, seed 0. Lỗi được cài vào **mọi frame**, nên
+  kiểm tra theo thời gian cũng thấy frame bên cạnh có lỗi.
+- **Recall** = tỉ lệ lỗi cài mà cuboid đó bị cờ (lỗi xoá: có cờ `MISSING_3D` đúng chỗ). **Báo động giả** = cờ trên GT
+  sạch, tính theo frame. **Độ phủ** = tỉ lệ cuboid mà một nguồn có đủ bằng chứng để kết luận đúng / sai.
+- **Luật chấm "đúng"** (giống pilot của M44): tâm lệch ≤ 0,7 m, mỗi cạnh lệch ≤ 25 %, hướng lệch ≤ 20° (mod 180°,
+  bỏ qua với người); "lệch nhẹ" = đúng vật trong vòng 2 m.
+
+## 2. Kiểm tra trên dữ liệu mới (146 scene val nuScenes)
+
+Tool **đóng băng** ở commit `0a2e424` (bản v1) rồi chạy **một lần**. Chỉ dùng gói metadata (nhãn + vị trí xe), nên đo
+được các kiểm tra không cần cảm biến: theo thời gian, kích thước, chồng nhau, và chép cuboid. Kiểm tra LiDAR và camera
+**chưa** được đo trên dữ liệu mới (cần gói dữ liệu cảm biến).
+
+| nối vật bằng `instance_token` | ngày | mưa | **đêm** | tất cả | (mini val) |
+|---|---|---|---|---|---|
+| recall dời chỗ | 96 % | 96 % | 97 % | 96 % | 96–99 % |
+| recall sai kích thước | 100 % | 100 % | 100 % | 100 % | 99–100 % |
+| recall xoay 90° | 94 % | 96 % | 97 % | 95 % | 98–99 % |
+| recall đổi class | 100 % | 100 % | 100 % | 100 % | 99–100 % |
+| **recall mọi lỗi** | **98 %** | **98 %** | **99 %** | **98 %** | 98–99 % |
+| báo động giả theo thời gian / frame | 0,09 | 0,06 | 0,03 | 0,08 | 0,07 |
+| chép cuboid (Ctrl+B) đúng ngay | 97 % | 98 % | 94 % | 97 % | 99 % |
+
+Nối vật chỉ bằng vị trí (`--no-instance`, như cuboid tự vẽ không dùng Ctrl+B): recall mọi lỗi 92 % (dời chỗ 80 %,
+đổi class 17 % riêng phần thời gian – xe ↔ người không nối được – nhưng kiểm tra kích thước vẫn bắt 100 %).
+
+**Bản v2** (commit `78ee4f0`) sửa hai kiểm tra không giữ được ở v1. Nó được làm **sau khi đã thấy** kết quả v1 trên các
+scene này, nên số của v2 kém khách quan hơn:
+
+- *Kích thước phi lý*: khoảng kích thước mỗi class học từ **700 scene train** của nuScenes đầy đủ (944 881 cuboid, không
+  đụng tới val) thay vì 8 scene mini; độ nới chọn theo 10 nhóm scene (×1,225, v1 ×1,4).
+- *Chồng nhau*: chỉ xe–xe (ngưỡng 0,3), trừ đầu kéo + rơ-moóc; class khác chỉ khi cùng class chồng ≥ 60 % (gán trùng).
+
+| 146 scene val | v1 | **v2** |
+|---|---|---|
+| báo động giả kích thước phi lý / frame | 0,85 | **0,14** |
+| báo động giả chồng nhau / frame | 0,46 | **0,03** |
+| báo động giả mọi kiểm tra không cần cảm biến / frame (`instance_token`) | 1,39 | **0,25** (đêm 0,04) |
+| như trên, nối bằng vị trí | 2,14 | **1,00** |
+| recall mọi lỗi (`instance_token` / vị trí) | 98 % / 92 % | 98 % / 92 % |
+
+## 3. nuScenes-mini val: camera + LiDAR + thời gian
+
+`python -m labeler.eval_lidar --split val` (81 frame, 4441 cuboid, 1325 lỗi; cấu hình hiện tại = v2).
+
+**Độ phủ trên GT sạch**
+
+| | camera | LiDAR | thời gian | ít nhất một |
+|---|---|---|---|---|
+| mọi cuboid | 35 % | 54 % | 100 % | 100 % |
+| cuboid camera không kiểm được (65 %) | – | 44 % | 99 % | 100 % |
+
+**Recall trên cuboid camera không kiểm được**
+
+| lỗi | n | camera | LiDAR | thời gian | LiDAR + thời gian |
+|---|---|---|---|---|---|
+| dời chỗ | 202 | 5 % | 16 % | 96 % | 96 % |
+| sai kích thước | 165 | 5 % | 72 % | 99 % | 100 % |
+| xoay 90° | 137 | 1 % | 28 % | 99 % | 99 % |
+| đổi class | 168 | 4 % | 100 % | 99 % | 100 % |
+| **tất cả** | **672** | **4 %** | **53 %** | **98 %** | **99 %** |
+
+Trên cuboid camera kiểm được: camera 67 %, LiDAR 64 %, thời gian 99 %, kết hợp 100 %.
+
+**Báo động giả trên GT sạch:** camera 2,48 / frame, LiDAR 2,88 / frame (nhiều nhất "cuboid rỗng" 1,3 / frame – xe tối
+màu hoặc nhiều kính cho tia laser xuyên qua – rồi mặt đất), thời gian 0,07 / frame.
+
+**Mức chắc chắn của cờ** (`labeler/qc.py`)
+
+| nhóm | quy tắc | cờ trúng lỗi thật | báo động giả / frame | lỗi bắt được |
+|---|---|---|---|---|
+| **Chắc chắn** | cuboid bị ≥ 2 nguồn cùng cờ | 98 % | 0,14 | 64 % |
+| **Cần xem** | 1 nguồn | 45 % | 5,30 | thêm 35 % (tổng 99 %) |
+
+## 4. Gợi ý sửa
+
+Áp dụng gợi ý cho mỗi lỗi bị cờ rồi chấm theo luật "đúng".
+
+| nguồn cờ | sửa đúng | ghi chú |
+|---|---|---|
+| thời gian | 92 % | lấy kích thước trung vị / vị trí nội suy / class đa số |
+| LiDAR | 47 % | trượt / dựng lại theo điểm, đổi class khi kích thước khớp class khác loại |
+| camera (`eval_fix`) | 51 % | đổi class 93 %, xoay 79 %, kích thước 74 %, dời 43 %, tạo lại cuboid đã xoá 18 % |
+
+Áp dụng gợi ý lên cờ **báo động giả** làm hỏng cuboid đúng khoảng 2/3 số lần; vì vậy app khoá nút Áp dụng của cờ
+"cần xem" cho tới khi người gán bấm Xem trước. Với gợi ý camera, *tin cậy cao* (cuboid mới ôm thêm rõ rệt điểm LiDAR)
+trúng lỗi thật 96 %, *tin cậy thấp* 73 %.
+
+## 5. Chép cuboid sang frame sau (Ctrl+B)
+
+`python -m labeler.eval_propagate --split val`: người gán được giả lập làm đúng frame trước (= GT) rồi chép sang.
+
+| cách chép (mini val, 4361 cuboid) | đúng ngay | lệch nhẹ | lệch xa |
+|---|---|---|---|
+| chép nguyên toạ độ | 3 % | 20 % | 78 % |
+| + bù chuyển động xe ego | 89 % | 8 % | 3 % |
+| **+ vận tốc của vật (app)** | **99 %** | 1 % | 0 % |
+| + kéo theo điểm LiDAR (không dùng) | 91 % | 9 % | 0 % |
+
+Vật đứng yên đúng 100 %, đang chạy 94 %; mỗi lần chép còn ~3–4 % vật mới phải vẽ và ~3–4 % cuboid phải xoá. Bước kéo theo
+điểm LiDAR làm kém đi ở mọi ngưỡng thử trên train nên bị tắt. Chép nối tiếp không sửa thì sai dồn (53 % đúng sau 5
+frame, `--chain 5`). Trên 146 scene mới: 97 % (đêm 94 %).
+
+## 6. Gợi ý cuboid từ ảnh (2D → 3D)
+
+`python -m labeler.eval_propose --split val`: gợi ý từ box YOLO khớp với một cuboid GT, so với chính cuboid đó.
+
+| class | n | IoU BEV trung vị | IoU ≥ 0,5 | lệch tâm trung vị | lệch hướng trung vị |
+|---|---|---|---|---|---|
+| car | 707 | 0,53 | 55 % | 0,56 m | 10° |
+| pedestrian | 620 | 0,42 | 38 % | 0,23 m | 40° (người không có hướng rõ) |
+| truck | 57 | 0,51 | 51 % | 1,04 m | 3° |
+| bus | 24 | 0,48 | 38 % | 1,10 m | 11° |
+
+Mốc máy – chỉ bấm Shift+G trên frame rỗng, không chỉnh (`python -m labeler.eval_assist --split val`; mục tiêu = car và
+người nhìn thấy ≥ 60 % trong 30 m): đúng 32 %, lệch 29 %, bỏ sót 39 % trên 1505 mục tiêu. Phần bỏ sót là vật YOLO không
+thấy hoặc không có điểm LiDAR.
+
+## 7. Chạy lại
+
+Trong thư mục `backend` (`NUSC_ROOT` trỏ tới nuScenes-mini):
+
+```bash
+python -m labeler.calib_lidar --split train                                   # ngưỡng LiDAR + thời gian (~6 phút)
+python -m labeler.calib_lidar --annotations-from D:/data/nuscenes-trainval    # v2: kích thước + chồng nhau
+python -m labeler.eval_lidar --split val [--no-instance]                      # mục 3, 4
+python -m labeler.eval_heldout --nusc-root D:/data/nuscenes-trainval [--no-instance]   # mục 2
+python -m labeler.eval_propagate --split val [--chain 5]                      # mục 5
+python -m labeler.eval_fix --split val                                        # mục 4, gợi ý camera
+python -m labeler.eval_propose --split val                                    # mục 6
+python -m labeler.eval_assist --split val                                     # mục 6, mốc Shift+G
+```
+
+## 8. Giới hạn
+
+- Mọi lỗi là lỗi **cài tổng hợp**; lỗi của người gán thật (lệch nhỏ, nhầm car ↔ truck, bỏ sót vật bị che) chưa được đo –
+  cần pilot với người thật ([PILOT_APP.md](PILOT_APP.md)).
+- Kiểm tra LiDAR và camera mới chỉ đo trên mini (2 scene val); ngưỡng LiDAR học từ 8 scene.
+- Frame nguồn khi đo chép cuboid là GT (rất mượt); với nhãn người gán, tỉ lệ đúng sẽ thấp hơn.
+- Chi tiết các quyết định và phương án đã thử: [decision-log.md](decision-log.md).

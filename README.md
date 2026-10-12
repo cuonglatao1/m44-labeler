@@ -1,337 +1,268 @@
 # M44 Labeler
 
-App gán nhãn cuboid 3D (nuScenes) có **kiểm tra 2D–3D ngay trong lúc gán**: mỗi cuboid được chiếu lên 6 camera và so
-với vật thể YOLO thấy trên ảnh, cuboid lệch / sai class / thiếu hiện cờ ngay, không phải chạy tool sau rồi quay lại sửa.
+**Công cụ gán nhãn cuboid 3D cho dữ liệu lái xe tự động (nuScenes), kiểm tra chất lượng ngay trong lúc gán.**
 
-Tách từ [T054-M44-3d-to-2d-tool](https://github.com/cuonglatao1/T054-M44-3d-to-2d-tool) (commit `4149620`):
-`backend/m44/` là lõi của M44 (loader, chiếu, ghép cặp, cài lỗi, đánh giá, CVAT I/O) chép nguyên,
-`configs/tuned.json` là ngưỡng đã chỉnh trên train. Sửa logic kiểm tra thì sửa ở cả hai repo.
-Khác bản gốc duy nhất: `load_frames_nusc` trả thêm `lidar2global` (để xuất hệ global), `scene`, `timestamp` và
-`instance` của mỗi cuboid (kiểm tra theo thời gian).
+Mỗi cuboid được kiểm bằng ba nguồn bằng chứng độc lập – **ảnh camera**, **point cloud LiDAR** và **chính vật đó ở các
+frame trước / sau** – nên lỗi hiện thành cờ ngay khi người gán kéo cuboid, kèm gợi ý sửa một chạm, thay vì phải chạy công
+cụ kiểm tra sau rồi quay lại sửa.
 
-## Cấu trúc
+![Python](https://img.shields.io/badge/python-3.10–3.12-3776AB) ![Node](https://img.shields.io/badge/node-20%2B-339933)
+![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688) ![React](https://img.shields.io/badge/frontend-React%20%2B%20three.js-61DAFB)
+![nuScenes](https://img.shields.io/badge/data-nuScenes-555)
+
+## Mục lục
+
+- [Vấn đề](#vấn-đề)
+- [Tính năng](#tính-năng)
+- [Kết quả chính](#kết-quả-chính)
+- [Bắt đầu nhanh](#bắt-đầu-nhanh)
+- [Sử dụng](#sử-dụng)
+- [Cách hoạt động](#cách-hoạt-động)
+- [Cấu trúc dự án](#cấu-trúc-dự-án)
+- [Phát triển](#phát-triển)
+- [API](#api)
+- [Giới hạn và lộ trình](#giới-hạn-và-lộ-trình)
+- [Nguồn gốc, dữ liệu và giấy phép](#nguồn-gốc-dữ-liệu-và-giấy-phép)
+
+## Vấn đề
+
+Cách kiểm tra nhãn 3D phổ biến là chiếu cuboid lên ảnh và so với vật mà detector 2D (YOLO) nhìn thấy – đó là dự án
+[M44 – 2D–3D Consistency Checker](https://github.com/cuonglatao1/T054-M44-3d-to-2d-tool). Nhưng camera chỉ kết luận được
+khi vật nhìn rõ: trên nuScenes, **65 % cuboid camera không kiểm được** (bị che, ở xa, nhìn thấy dưới 60 %, hoặc thuộc class
+YOLO không nhận như barrier, cọc giao thông). Đó lại chính là những cuboid khó gán nhất.
+
+M44 Labeler kiểm chúng bằng một chuỗi bổ sung cho nhau:
+
+| cuboid | được kiểm bằng |
+|---|---|
+| nhìn rõ trên ảnh | **camera**: hình chiếu so với box YOLO (M44) |
+| camera bó tay nhưng LiDAR thấy | **hình học point cloud**: bắn tia laser qua cuboid, kích thước, mặt đất, đám điểm |
+| cả hai đều yếu (bị che, ban đêm) | **thời gian**: so với chính vật đó ở các frame trước / sau |
+
+## Tính năng
+
+**Gán nhãn**
+- BEV point cloud lớn, 6 camera, khung nhìn ngang / từ sau / **từ trên** của cuboid đang chọn.
+- Kéo, xoay, co giãn cuboid trên BEV, trong các khung nhìn, hoặc **kéo thẳng trên ảnh camera**; phím tắt kiểu tool chuyên
+  nghiệp; hoàn tác / làm lại.
+- **Chép cuboid từ frame trước** (Ctrl+B): bù chuyển động xe ego và vận tốc của từng vật, giữ mã vật – 97 % cuboid chép
+  sang đúng ngay trên dữ liệu mới.
+- **Gợi ý cuboid từ ảnh**: bấm một box YOLO là có cuboid dựng từ điểm LiDAR trong vùng đó.
+
+**Kiểm tra chất lượng (chạy live, ~60 ms / frame)**
+- Camera: lệch vị trí, sai kích thước, sai class, không khớp ảnh, thiếu cuboid.
+- LiDAR: cuboid rỗng, lấn khoảng trống, điểm tràn ra ngoài, lệch hướng so với đám điểm, kích thước phi lý, lơ lửng / chìm,
+  chồng nhau.
+- Thời gian: nhảy vị trí, nhảy kích thước, nhảy hướng (bắt cả quay ngược 180°), đổi class giữa các frame.
+- Cờ được chia **Chắc chắn** (≥ 2 nguồn cùng báo – trúng lỗi thật 98 %) / **Cần xem** (1 nguồn); mỗi cuboid có **mức tin
+  cậy QC** và thẻ tổng quan cho biết độ phủ của từng nguồn.
+- **Gợi ý sửa** cho mọi loại cờ, có xem trước nét đứt; cờ một nguồn phải xem trước mới áp dụng được.
+- Người gán bấm ✓ / ✗ để xác nhận hoặc bác cờ; phán quyết ✗ đi theo vật khi chép sang frame sau.
+- Trợ lý **Claude** (tuỳ chọn) giải thích cờ và đề xuất sửa dựa trên số liệu thật của frame.
+
+**Khác**
+- Chế độ **pilot** để đo người gán: frame bắt đầu rỗng, không lộ nhãn gốc, đồng hồ, chấm điểm khi nộp.
+- Xuất nuScenes detection results, JSON, hoặc tạo task trên **CVAT**.
+- Chạy hoàn toàn offline trên Windows, không cần GPU.
+
+## Kết quả chính
+
+Đo bằng lỗi cài có đáp án (dời 1–2,5 m, kích thước ×0,6 / ×1,6, xoay 90°, đổi class) như dự án M44; chi tiết, giao thức
+và cách chạy lại ở [docs/EVALUATION.md](docs/EVALUATION.md).
+
+| | camera (M44) | **M44 Labeler** |
+|---|---|---|
+| tỉ lệ cuboid kiểm được (độ phủ, mini val) | 35 % | **100 %** |
+| lỗi bắt được trên cuboid camera không kiểm được (mini val) | 4 % | **99 %** |
+| lỗi bắt được, 146 scene val **mới** (ngày / mưa / **đêm**)¹ | – | **98 % / 98 % / 99 %** |
+| cờ nhóm "Chắc chắn" trúng lỗi thật (mini val) | – | **98 %** (0,14 báo nhầm / frame) |
+| cuboid chép sang frame sau đúng ngay, 146 scene mới | – | **97 %** |
+
+¹ Kiểm tra theo thời gian + kích thước + chồng nhau, tool đóng băng trước khi đo; kiểm tra LiDAR và camera chưa được đo
+trên dữ liệu mới.
+
+## Bắt đầu nhanh
+
+Cần Windows 10/11, **Python 3.11**, **Node.js 20+** và **nuScenes-mini** (~4 GB, tải miễn phí tại
+<https://www.nuscenes.org/nuscenes#download> sau khi đăng ký).
+
+```bash
+git clone https://github.com/cuonglatao1/m44-labeler.git
+cd m44-labeler
+```
+
+1. Giải nén `v1.0-mini.tgz` vào `data\nuscenes` trong repo (phải có `data\nuscenes\v1.0-mini`, `samples`, `sweeps`), hoặc
+   để ở `D:\data\nuscenes`, hoặc trỏ biến môi trường `NUSC_ROOT` tới đó.
+2. Bấm đúp **`setup_windows.bat`**: tạo môi trường Python, cài thư viện, nạp kết quả YOLO có sẵn, build giao diện.
+3. Bấm đúp **`run_app.bat`** → trình duyệt tự mở <http://localhost:8770>.
+
+Hướng dẫn từng bước cho người không chuyên (kèm "thử nhanh 5 phút" và các lỗi thường gặp):
+[docs/HUONG_DAN_CAI_DAT.md](docs/HUONG_DAN_CAI_DAT.md).
+
+<details>
+<summary>Cài thủ công (Linux / macOS / Windows)</summary>
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\...
+cd backend && ../.venv/bin/python -m labeler.precompute --bundled && cd ..
+cd frontend && npm install && npm run build && cd ..
+cd backend && NUSC_ROOT=/path/to/nuscenes ../.venv/bin/python -m uvicorn labeler.main:app --port 8770
+```
+</details>
+
+## Sử dụng
+
+**Bố cục.** Thanh công cụ bên trái (thu gọn bằng `\`), BEV ở giữa với các khung nhìn của cuboid đang chọn, cột camera
+(một ảnh lớn tự theo cuboid / cờ đang chọn và 6 ảnh nhỏ), panel phải gồm **Đối tượng**, **Kiểm tra** (cờ, lọc theo
+nguồn), **Trợ lý** (gợi ý sửa, chat) và bảng thuộc tính. Kéo đường ranh giữa các vùng để đổi kích thước. Bấm vào ảnh lớn
+để xem toàn màn hình.
+
+**Phím tắt** (bấm `?` trong app để xem đầy đủ)
+
+| phím | thao tác |
+|---|---|
+| `V` · `B` (rồi bấm lên BEV) | chọn · thêm cuboid |
+| `W A S D` (Shift ×5) · `Q E` · `R F` · `T` | dịch 10 cm · xoay 1° · nâng hạ 5 cm · quay đầu 180° |
+| kéo trên BEV / ảnh camera / khung nhìn | dời, co giãn, xoay cuboid đang chọn |
+| `Ctrl+B` · `Ctrl+Shift+B` | chép cuboid từ frame trước / sau |
+| bấm ô cam · `Shift`+bấm box YOLO · `G` · `Shift+G` | gợi ý cuboid từ ảnh |
+| `N` / `P` · `1` / `2` | cờ tiếp / trước · cờ đúng / báo động giả |
+| `Del` · `Esc` · `Ctrl+Z` / `Ctrl+Y` · `Ctrl+S` | xoá · bỏ chọn · hoàn tác / làm lại · lưu |
+| `←` `→` · `C` · `3` · `\` | đổi frame · căn giữa · xoay 3D · thu gọn thanh công cụ |
+
+**Hai cách làm việc**
+- *Gán từ đầu:* chọn "Frame mới: Rỗng" (menu ⋯). Các ô cam "Thiếu cuboid" là danh sách vật cần gán (`Shift+G` gợi ý tất
+  cả); sang frame sau thì `Ctrl+B` rồi chỉnh các cuboid có cờ.
+- *Kiểm tra nhãn có sẵn:* mở frame với nhãn gốc (hoặc nhãn đã lưu), xử lý nhóm cờ **Chắc chắn** trước, rồi xem nhóm
+  **Cần xem**; bấm ✗ cho cờ báo nhầm.
+
+**Trợ lý Claude (tuỳ chọn).** Tạo file `.anthropic.env` ở thư mục repo với dòng `ANTHROPIC_API_KEY=...` (hoặc đặt biến
+môi trường). Không có khoá thì thẻ gợi ý sửa vẫn chạy bình thường, chỉ không có chat.
+
+**Xuất.** Menu ⋯ → *Xuất nuScenes* (detection results, hệ global) hoặc *Xuất JSON* (hệ LiDAR). Lên CVAT:
+`pip install -r requirements-cvat.txt`, đặt `CVAT_URL` + `CVAT_ACCESS_TOKEN`, rồi
+`python -m labeler.export_cvat --name "..."` trong `backend`.
+
+## Cách hoạt động
+
+```
+                          ┌──────────── trình duyệt (React + three.js) ─────────────┐
+                          │ BEV · 6 camera · khung nhìn · danh sách cờ · trợ lý      │
+                          └───────────────┬──────────────────────────▲──────────────┘
+                     cuboid (mỗi lần sửa) │                          │ cờ + mức tin cậy + gợi ý
+                          ┌───────────────▼──────────────────────────┴──────────────┐
+                          │ FastAPI  labeler/main.py                                 │
+                          │  ├ camera   m44/match.py      chiếu ↔ box YOLO           │
+                          │  ├ LiDAR    labeler/lidar_qc.py  bắn tia, kích thước…    │
+                          │  ├ thời gian labeler/track.py   so với frame trước/sau   │
+                          │  ├ gộp      labeler/qc.py       chắc chắn / cần xem      │
+                          │  └ sửa      labeler/fix.py, fix_qc.py, propagate.py      │
+                          └──────────────────────────────────────────────────────────┘
+```
+
+- **Camera** (`backend/m44/`): chiếu 8 đỉnh cuboid lên 6 camera, ghép với box YOLO bằng Hungarian trên IoU, gắn cờ khi
+  IoU thấp, tỉ lệ kích thước lệch, class không tương thích, cuboid không có box hoặc box không có cuboid. Chỉ kết luận
+  khi vật đủ gần, đủ to và không bị che quá nửa.
+- **LiDAR** (`labeler/lidar_qc.py`): file LiDAR của nuScenes lưu đủ mọi phát laser (32 tia × ~1086 cột), cả phát không có
+  phản hồi. Mỗi cuboid được *bắn tia* bằng đúng các phát đó: phản hồi **trước** cuboid là bị che (không phải bằng chứng
+  sai), **trong** cuboid là chạm vật, **sau** cuboid là laser đi xuyên qua chỗ cuboid khai là có vật. Nhờ vậy phân biệt
+  được "bị che" với "cuboid rỗng". Thêm: điểm cùng vật tràn ra ngoài, trục đám điểm, đáy so với mặt đất, kích thước so với
+  khoảng của class, hai xe chồng nhau.
+- **Thời gian** (`labeler/track.py`): vật được nối qua các keyframe (±2 s) bằng mã vật (`instance_token` của nuScenes, hoặc
+  mã `obj_…` mà app gán và giữ khi chép cuboid), sau khi bù chuyển động xe ego. Kích thước phải gần trung vị của chuỗi; vị
+  trí và hướng gần dự đoán nội suy / ngoại suy tốt nhất (một frame bên cạnh sai không làm cuboid đúng bị cờ); class phải
+  giống đa số frame khác.
+- **Mức chắc chắn** (`labeler/qc.py`): ba nguồn độc lập, nên cuboid bị ≥ 2 nguồn cùng cờ gần như chắc chắn sai.
+- **Ngưỡng** chỉnh trên tập train, mỗi kiểm tra lấy cấu hình bắt nhiều lỗi nhất với báo nhầm ≤ 0,5 % cuboid sạch
+  (`configs/lidar_qc.json`, `labeler/calib_lidar.py`); ngưỡng camera là `configs/tuned.json` của M44.
+- Lý do của từng lựa chọn và các phương án đã thử rồi bỏ: [docs/decision-log.md](docs/decision-log.md).
+
+## Cấu trúc dự án
 
 ```
 backend/
-  m44/          lõi M44 (chép từ repo cũ, không phụ thuộc web)
-  labeler/      FastAPI: main.py (API), dataset.py (frame/point/ảnh), store.py (SQLite), precompute.py (cache YOLO),
-                lidar_qc.py + track.py (kiểm tra LiDAR / thời gian), fix.py + fix_qc.py (gợi ý sửa), calib_lidar.py,
-                eval_*.py (đo)
-frontend/       React + Vite + react-three-fiber: BEV point cloud, 6 camera, danh sách cờ
-configs/        tuned.json – ngưỡng của checker camera (đổi bằng biến môi trường M44_CFG);
-                lidar_qc.json – ngưỡng LiDAR / thời gian (labeler/calib_lidar.py)
-cache/          dets/<sample>.json (YOLO), labels.db (nhãn đã lưu + log) – không commit
-precomputed/    yolo_dets_nuscenes_mini.json.gz – YOLO của 404 frame mini, nạp bằng precompute --bundled
-tests/          test chiếu / loader chép từ repo cũ; test_lidar_qc.py (sweep tổng hợp, chạy bằng python)
+  m44/                lõi kiểm tra camera của dự án M44 (loader, chiếu, ghép cặp, cài lỗi, đánh giá, CVAT I/O)
+  labeler/
+    main.py           API FastAPI, gộp ba nguồn kiểm tra
+    dataset.py        frame nuScenes, point cloud, ảnh, cache YOLO
+    store.py          SQLite: nhãn đã lưu, nhật ký, phán quyết ✓/✗, bài pilot
+    lidar_qc.py       kiểm tra LiDAR            track.py      kiểm tra theo thời gian
+    qc.py             mức chắc chắn của cờ      propagate.py  chép cuboid sang frame sau
+    propose.py        gợi ý cuboid từ box 2D    fix.py, fix_qc.py  gợi ý sửa
+    assistant.py      trợ lý Claude (tuỳ chọn)  precompute.py cache YOLO
+    calib_lidar.py    chỉnh ngưỡng              eval_*.py     các bài đo (docs/EVALUATION.md)
+    score.py, pilot_report.py   chấm điểm và báo cáo pilot
+    export.py, export_cvat.py   xuất nuScenes / CVAT
+frontend/src/         React + react-three-fiber: App.jsx, BevView, CameraView, SideView, panels, assistant
+configs/              tuned.json (ngưỡng camera), lidar_qc.json (ngưỡng LiDAR + thời gian)
+precomputed/          kết quả YOLO của 404 keyframe nuScenes-mini (nạp bằng precompute --bundled)
+docs/                 hướng dẫn cài đặt, đánh giá, pilot, định dạng JSON, nhật ký quyết định
+tests/                test chiếu, loader, kiểm tra LiDAR / thời gian (sweep tổng hợp)
+cache/  data/         sinh ra khi chạy / dữ liệu nuScenes – không đưa lên git
 ```
 
-## Chạy (Windows)
+## Phát triển
 
-**Người mới trong nhóm: làm theo [docs/HUONG_DAN_CAI_DAT.md](docs/HUONG_DAN_CAI_DAT.md)** (cài Python + Node, tải
-nuScenes-mini, bấm đúp hai file, thử nhanh 5 phút). Tóm tắt:
-
-1. Python 3.11 + Node.js 20+, `git clone https://github.com/cuonglatao1/m44-labeler.git`.
-2. nuScenes-mini (`v1.0-mini.tgz`) giải nén vào `data
-uscenes` của repo (hoặc `D:\data
-uscenes`, hoặc đặt `NUSC_ROOT`).
-3. `setup_windows.bat`: cài thư viện, nạp kết quả YOLO có sẵn (`precomputed/yolo_dets_nuscenes_mini.json.gz`, không cần
-   torch), build giao diện. Muốn chạy YOLO mới: `pip install -r requirements-detect.txt` rồi
-   `cd backend && python -m labeler.precompute --split all`.
-4. `run_app.bat` → <http://localhost:8770>. Khi sửa code: `run_dev.bat` (giao diện ở <http://localhost:5173>); sửa
-   backend thì phải chạy lại `run_app.bat`.
-
-## Giao diện
-
-Bố cục theo các tool gán nhãn 3D chuyên nghiệp (Segments.ai, Supervisely, SageMaker Ground Truth, CVAT 3D):
-thanh công cụ dọc bên trái (chọn `V`, thêm cuboid `B`, gợi ý, căn giữa `C`, xoay 3D `3`), BEV lớn ở giữa với 2 khung
-nhìn ngang nổi ở đáy khi chọn cuboid, cột camera (một camera phóng to tự theo cuboid / cờ đang chọn + 6 ảnh nhỏ),
-panel phải 2 tab **Đối tượng** (nhóm theo class, trạng thái kiểm tra, khoảng cách) / **Kiểm tra** (cờ, ✓ / ✗) và
-bảng thuộc tính có ô nhập số X Y Z, L W H, hướng. Màu cuboid theo class, cuboid có cờ viền đỏ; chuyển sang tô theo
-kết quả kiểm tra ở góc BEV. Chọn cuboid ở bất kỳ đâu (danh sách, ảnh, BEV, cờ) thì BEV trượt tới và phóng vào nó (nút ⌖ ở góc BEV để tắt). Bấm vào ảnh camera lớn (hoặc bấm đúp ảnh nhỏ) mở trình xem toàn màn hình: lăn chuột zoom, kéo để di chuyển, ← → đổi camera, Esc đóng. Thanh trạng thái gợi ý thao tác; `?` mở bảng phím tắt. Kéo đường ranh giữa BEV | camera và camera | panel phải để đổi kích thước (bấm đúp: về mặc định, app nhớ lần sau); `\` hoặc nút cuối thanh công cụ để thu gọn / mở thanh công cụ. Cuboid đang chọn kéo được cả trên ảnh camera (dời trên mặt đất) và trong khung **Nhìn từ trên** dưới BEV (dời, kéo 4 cạnh, chấm xanh để xoay). Icon Lucide, font Inter (đóng
-gói sẵn, chạy offline).
-
-## Gán nhãn
-
-| Thao tác | |
-|---|---|
-| Kéo thân cuboid đang chọn / chấm vàng / chấm xanh (BEV) | di chuyển / co giãn mặt đó / xoay |
-| Kéo cạnh trên, dưới, trái, phải trong 2 view ngang; kéo thân | chiều cao, đáy, dài / rộng; nâng hạ |
-| W A S D (Shift ×5) · Q / E · R / F | dịch 10 cm · xoay 1° · nâng hạ 5 cm |
-| B rồi bấm lên BEV | thêm cuboid (class chọn ở thanh trên, kích thước điển hình, đặt sát mặt đất) |
-| Bấm ô cam · Shift+bấm box YOLO · G · Shift+G | gợi ý cuboid từ ảnh (một vật · cờ đang chọn · mọi ô cam) |
-| T · 1 / 2 | quay đầu 180° · cờ đúng / báo động giả (bấm lại để bỏ) |
-| Del · Esc · Ctrl+Z / Ctrl+Y · Ctrl+S | xoá · bỏ chọn · hoàn tác / làm lại · lưu |
-| N / P · ← → | cờ tiếp / trước · frame |
-| Ctrl+B · Ctrl+Shift+B | chép cuboid từ frame trước / sau (giữ mã vật) |
-
-"Frame mới: GT / rỗng" chọn cách mở frame chưa lưu. Gán từ đầu (rỗng) thì các ô cam `MISSING_3D` chính là danh sách
-vật thể cần gán. Mỗi lần lưu ghi thời gian mở frame → lưu vào bảng `events` (dùng cho P4).
-
-## Gợi ý cuboid từ ảnh (2D → 3D)
-
-`backend/labeler/propose.py`: bỏ mặt đất (min-z lưới 1 m) → điểm LiDAR rơi trong box 2D → gom cụm 3D → với 4 cụm lớn
-nhất: nới ra cả vật, xoay theo hình chữ nhật diện tích nhỏ nhất (thử cả 2 trục làm chiều dài), kéo kích thước tới cỡ
-điển hình của class về phía LiDAR không thấy → chiếu lại lên ảnh, chọn ứng viên khớp box 2D nhất (trừ điểm nếu lệch
-kích thước điển hình). Không có cụm nào thì đặt cỡ điển hình theo tia qua đáy box 2D chạm mặt đất.
-
-Đo bằng `python -m labeler.eval_propose --split val` (val **không** dùng khi chỉnh; gợi ý từ box YOLO khớp với từng
-cuboid GT, so với chính cuboid đó):
-
-| class | n | IoU BEV trung vị | IoU ≥ 0,5 | lệch tâm trung vị | lệch hướng trung vị (mod 180°) |
-|---|---|---|---|---|---|
-| car | 707 | 0,53 | 55% | 0,56 m | 10° |
-| pedestrian | 620 | 0,42 | 38% | 0,23 m | 40° (người không có hướng rõ) |
-| truck | 57 | 0,51 | 51% | 1,04 m | 3° |
-| bus | 24 | 0,48 | 38% | 1,10 m | 11° |
-
-Tức là khoảng một nửa số xe chỉ cần chỉnh nhẹ sau khi bấm; hướng đầu xe (180°) phải tự kiểm (phím T).
-Gợi ý hàng loạt bỏ ô trùng vật đã có cuboid và gợi ý có hình chiếu khớp box 2D dưới 0,1.
-
-## Đo hiệu quả (P4)
-
-Chấm theo đúng luật pilot phần 2 của repo M44: mục tiêu = `car`, `pedestrian` nhìn thấy ≥ 60 % trong 30 m; **đúng** =
-tâm ≤ 0,7 m, cạnh ±25 %, hướng ≤ 20° (bỏ hướng với người); **lệch** = đúng class trong 2 m; còn lại **sai / thừa**.
-
-Mốc máy – chỉ bấm Shift+G trên frame rỗng, không chỉnh gì (`python -m labeler.eval_assist --split val`):
-
-| | mục tiêu | đúng | lệch (chỉ cần chỉnh) | bỏ sót | cuboid sai / thừa |
-|---|---|---|---|---|---|
-| cả val (81 frame) | 1505 | 32 % | 29 % | 39 % | 246 / 1404 |
-| val 25 (frame pilot CVAT) | 17 | 5 | 8 | 4 | 4 |
-| val 60 (frame pilot app) | 18 | 5 | 5 | 8 | 4 |
-
-Bấm Shift+G lần hai không thêm được gì (`--rounds 2`): phần bỏ sót là vật YOLO không thấy hoặc không có điểm LiDAR –
-annotator phải tự thêm.
-
-## Trợ lý QC và gợi ý sửa
-
-Tab **Trợ lý** (hoặc nút 🪄 ở mỗi cờ trong tab Kiểm tra): chọn một cờ là trợ lý đưa ngay **gợi ý sửa** dạng thẻ –
-đổi class / dời-xoay-co giãn / xoá cuboid thừa / tạo cuboid còn thiếu / khuyên đánh dấu báo động giả – kèm số liệu
-(khớp ảnh trước → sau, số điểm LiDAR) và mức tin cậy. **Xem trước** vẽ cuboid đã sửa nét đứt trên BEV và ảnh;
-**Áp dụng** sửa thật (Ctrl+Z để hoàn tác), rồi Lưu như thường.
-
-- Gợi ý tính bằng hình học (`backend/labeler/fix.py`), chạy offline, không cần mạng.
-- Có khoá API Anthropic thì bật thêm **chat với Claude** (`backend/labeler/assistant.py`): hỏi "vì sao bị cờ này?",
-  "frame còn vấn đề gì?", "cuboid này nên dài bao nhiêu?"… Claude đọc frame qua công cụ (tổng quan, chi tiết cuboid,
-  `suggest_fix`) nên không bịa số; mọi đề xuất sửa hiện thành thẻ có nút Áp dụng. Trả lời stream dần về trình duyệt.
-- Bật Claude: `ant auth login`, hoặc đặt `ANTHROPIC_API_KEY`, hoặc tạo file `.anthropic.env` ở thư mục repo với dòng
-  `ANTHROPIC_API_KEY=...` (đã gitignore). Model mặc định `claude-opus-5-5`, effort `low` (trả lời nhanh, ngắn);
-  đổi bằng `M44_LLM_MODEL` (ví dụ `claude-sonnet-5-5` rẻ hơn một nửa) và `M44_LLM_EFFORT`. Có bật fallback phía
-  server (`fallbacks: "default"`) nên nếu Claude từ chối vì bộ lọc an toàn, yêu cầu được chạy lại trên model dự phòng.
-
-Đo bằng `python -m labeler.eval_fix --split val`: cài lỗi có đáp án vào GT (dời 1–2,5 m, kích thước ×0,6/×1,6, xoay
-90°, đổi class, xoá), áp dụng gợi ý cho mỗi lỗi bị cờ, chấm theo luật pilot (tâm 0,7 m, cạnh 25 %, hướng 20°):
-
-| lỗi | bị cờ | gợi ý sửa đúng |
-|---|---|---|
-| đổi class | 85 | 93 % |
-| xoay 90° | 14 | 79 % |
-| sai kích thước | 82 | 74 % |
-| dời chỗ | 79 | 43 % |
-| xoá (tạo lại từ ảnh) | 152 | 18 % |
-| **tất cả** | **412** | **51 %** |
-
-Gợi ý "chỉnh cuboid" có **tin cậy cao** khi cuboid mới ôm thêm rõ rệt điểm LiDAR của vật: 86/90 lần (96 %) là lỗi
-thật. **Tin cậy thấp** = chỉ dựa vào box YOLO: 65/89 (73 %) là lỗi thật – với cờ báo động giả trên cuboid đúng, áp
-dụng mù quáng sẽ làm hỏng 33 % số đó, nên luôn xem trước. Gợi ý không thay người gán; nó rút ngắn việc đoán cần sửa gì.
-
-## Kiểm tra bằng LiDAR và theo thời gian (cuboid camera không kiểm được)
-
-Ở val, **65 % cuboid camera không kiểm được** (bị che, xa, nhìn thấy < 60 %, class YOLO không nhận). App kiểm chúng
-bằng một chuỗi bổ sung cho nhau: cuboid nhìn rõ → camera (M44); camera bó tay → hình học point cloud; cả hai đều yếu →
-chính vật đó ở các frame trước / sau. Cờ mới có nhãn nguồn **LiDAR** (xanh ngọc) / **Thời gian** (tím), lọc được ở tab
-Kiểm tra; inspector có mục **Kiểm tra QC** (camera / LiDAR / thời gian kiểm được không, kết quả, số tia và điểm), thẻ
-Tổng quan frame tô mỗi cuboid theo **mức tin cậy QC** (cao = ≥ 2 nguồn xác nhận, vừa = 1, có cờ, chưa kiểm) và hiện độ
-phủ của từng nguồn. Chọn cuboid có cờ LiDAR thì BEV chấm đỏ chỗ các tia đi xuyên qua nó.
-
-**LiDAR** (`backend/labeler/lidar_qc.py`). File `.bin` của nuScenes là range image có tổ chức: 32 tia × ~1086 cột, cả
-phát không về cũng có chỗ (điểm giả sát cảm biến). Nên mỗi cuboid được *bắn tia* với đúng các phát LiDAR thật: phát nào
-đi qua cuboid thì trả về **trước** cuboid (bị che – không phải bằng chứng sai), **trong** cuboid (chạm) hay **sau**
-cuboid (xuyên qua chỗ cuboid nói là có vật). Số "điểm kỳ vọng" vì vậy đã tính che khuất, không cần mô hình 1/d².
-
-| cờ | ý nghĩa | gợi ý sửa |
-|---|---|---|
-| `LIDAR_EMPTY` | đủ tia tới mà gần như không tia nào chạm, không có điểm thân vật – cuboid ma / dời chỗ | trượt về đám điểm gần nhất chưa có cuboid, không có thì xoá |
-| `LIDAR_FREE` | phần lớn tia tới xuyên qua – quá to / lệch | dựng lại theo điểm hoặc trượt (chọn cái LiDAR thấy ổn hơn) |
-| `LIDAR_SPILL` | điểm cùng vật (nối liền với điểm trong cuboid) nằm ngoài – quá nhỏ / lệch | như trên |
-| `LIDAR_HEADING` | trục dài đám điểm lệch hướng cuboid (xe thấy rõ chiều dài) | xoay theo đám điểm |
-| `SIZE_IMPLAUSIBLE` | dài / rộng / cao ngoài khoảng của class | khớp cỡ class khác loại (xe ↔ người) → đổi class; không thì dựng theo điểm / cỡ điển hình |
-| `FLOATING` / `SUNKEN` | đáy cách mặt đất quanh cuboid quá xa | đặt sát mặt đất |
-| `BEV_OVERLAP` | hai cuboid chồng đáy | cuboid rỗng chắc chắn → xoá, không thì xem cả hai |
-
-**Thời gian** (`backend/labeler/track.py`). Cùng một vật qua các keyframe (±4 frame = ±2 s; nối bằng `instance_token`
-của nuScenes, cuboid vẽ trong app thì nối bằng cuboid gần nhất sau khi bù chuyển động xe ego) phải giữ kích thước,
-class và đi mượt: `TRACK_SIZE` (lệch trung vị chuỗi > 10 %, gợi ý: lấy trung vị), `TRACK_JUMP` (lệch vị trí nội suy /
-ngoại suy, gợi ý: về vị trí đó), `TRACK_YAW` (lệch hướng, bắt cả quay ngược 180° – camera không bắt được), `TRACK_CLASS`
-(gợi ý: class đa số). Dự đoán tốt nhất trong các cách (nội suy trước–sau, ngoại suy hai frame cùng phía) được dùng, nên
-một frame bên cạnh sai không làm cuboid đúng bị cờ. Frame bên cạnh lấy nhãn đã lưu, chưa lưu thì GT; ở chế độ pilot
-chỉ lấy nháp của chính người đó (không lộ GT).
-
-**Ngưỡng** (`configs/lidar_qc.json`) chỉnh trên train bằng `python -m labeler.calib_lidar --split train`: mỗi cuboid GT
-được đo nguyên vẹn và trên bản cài lỗi (dời 1–2,5 m, ×0,6 / ×1,6, xoay 90°, đổi class, nâng/hạ 0,6 m); mỗi kiểm tra × nhóm
-class lấy cấu hình có recall cao nhất mà báo động giả trên cuboid sạch ≤ 0,5 %. Khoảng kích thước chọn kiểu bỏ-một-scene
-(mini chỉ có 8 scene train, cùng vài vật lặp lại) → nới ×1,4. Kiểm tra chạy trong ~60 ms/frame nên vẫn live khi kéo.
-
-Đo trên val (không dùng khi chỉnh), cùng giao thức cài lỗi của M44 (`python -m labeler.eval_lidar --split val`; 81 frame,
-4441 cuboid, 1325 lỗi, seed 0, cài vào mọi frame nên frame bên cạnh cũng có lỗi):
-
-| độ phủ trên GT sạch | camera | LiDAR | thời gian | ít nhất một |
-|---|---|---|---|---|
-| mọi cuboid | 35 % | 54 % | 100 % | 100 % |
-| cuboid camera không kiểm được (65 %) | – | 44 % | 99 % | 100 % |
-
-| recall, cuboid camera **không** kiểm được | n | camera | LiDAR | thời gian | LiDAR + thời gian |
-|---|---|---|---|---|---|
-| dời chỗ | 202 | 5 % | 18 % | 96 % | 96 % |
-| sai kích thước | 165 | 5 % | 65 % | 99 % | 100 % |
-| xoay 90° | 137 | 1 % | 28 % | 99 % | 99 % |
-| đổi class | 168 | 4 % | 100 % | 99 % | 100 % |
-| **tất cả** | **672** | **4 %** | **52 %** | **98 %** | **99 %** |
-
-Với cuboid camera kiểm được, kết hợp nâng recall từ 67 % (camera) lên 100 %. Báo động giả trên GT sạch: camera 2,48 /
-frame, LiDAR 2,93 / frame (nhiều nhất `LIDAR_EMPTY` 1,3 / frame – xe tối màu / kính cho tia xuyên qua; và mặt đất),
-thời gian 0,07 / frame. Gợi ý sửa: theo thời gian đúng 92 % lỗi bị cờ, theo LiDAR 48 %; áp dụng gợi ý lên cờ báo động
-giả sẽ làm hỏng cuboid đúng ~2/3 số lần → luôn **Xem trước**, hoặc bấm ✗.
-
-**Mức chắc chắn của cờ** (`backend/labeler/qc.py`). Ba nguồn là bằng chứng độc lập, nên tab Kiểm tra chia cờ thành hai
-nhóm, nhóm chắc chắn đứng trước (N / P cũng đi theo thứ tự này):
-
-| nhóm | quy tắc | cờ trên dữ liệu có lỗi trúng lỗi thật | báo động giả trên GT sạch | lỗi bắt được |
-|---|---|---|---|---|
-| **Chắc chắn** | cuboid bị ≥ 2 nguồn cùng gắn cờ | 98 % | 0,14 / frame | 64 % |
-| **Cần xem** | chỉ 1 nguồn | 45 % | 5,35 / frame | thêm 35 % (tổng 99 %) |
-
-(val, cùng lần đo ở trên; nối chỉ bằng vị trí: 95 % / 0,21 / 48 %.) Với cờ **cần xem**, nút **Áp dụng** của gợi ý dời /
-co giãn / tạo cuboid bị khoá cho tới khi bấm **Xem trước**; xoá cuboid thì phải xác nhận. Cờ chắc chắn áp dụng được ngay.
-
-Giới hạn, nói thẳng khi trình bày: (1) recall thời gian ở trên dùng `instance_token` của GT; nối cuboid chỉ bằng vị trí
-(như khi tự vẽ, `--no-instance`) thì thời gian còn 71 % (dời chỗ 71 %, đổi class 23 % vì xe ↔ người không nối được), báo
-động giả 0,85 / frame, LiDAR + thời gian vẫn 92 %. (2) Lỗi cài là lỗi tổng hợp; LiDAR chỉ bắt được vật có điểm (54 %
-cuboid). (3) Chưa làm: cộng dồn nhiều sweep (vật đứng yên), so với PointPillars làm "ý kiến thứ hai". Giới hạn (1)
-được khắc phục khi người gán dùng **Ctrl+B** (mục dưới): cuboid chép mang theo mã vật.
-
-## Chép cuboid sang frame sau và mã vật
-
-**Ctrl+B** (hoặc nút ⧉ ở thanh công cụ trái) chép mọi cuboid của keyframe liền trước trong scene vào frame đang mở;
-**Ctrl+Shift+B** chép từ frame sau (`backend/labeler/propagate.py`, `POST /api/frames/{i}/propagate`):
-
-- bù chính xác chuyển động của xe ego (LiDAR frame trước → global → LiDAR frame này);
-- vật có ở cả hai frame trước đó được đẩy tới theo vận tốc và tốc độ quay của nó;
-- giữ **mã vật** (`instance`), bỏ qua vật đã có trong frame (cùng mã hoặc cùng chỗ). Cuboid chép có biểu tượng ⧉ tím.
-
-Frame nguồn là nhãn đã lưu, chưa lưu thì GT; ở chế độ pilot chép chỉ được từ nháp của chính người đó (không có GT).
-Mọi cuboid giờ có mã vật: GT giữ `instance_token` của nuScenes, cuboid vẽ / gợi ý / chép trong app nhận `obj_…`.
-Inspector có ô **Mã vật** để sửa tay (ví dụ gộp hai mã khi một vật bị vẽ hai lần ở hai frame). Nhờ mã vật, kiểm tra theo
-thời gian nối đúng vật cả khi gán từ đầu – không phải đoán bằng vị trí (71 % → mức của `instance_token`, 98 %).
-
-Đo bằng `python -m labeler.eval_propagate --split val` – giả lập người gán làm xong mỗi frame (= GT) rồi chép sang frame
-sau, chấm từng cuboid chép theo luật pilot (tâm 0,7 m, cạnh 25 %, hướng 20°):
-
-| cách chép (val, 2 scene, 79 lần chép, 4361 cuboid) | đúng ngay | lệch nhẹ (≤ 2 m) | lệch xa |
-|---|---|---|---|
-| chép nguyên toạ độ | 3 % | 20 % | 78 % |
-| + bù chuyển động xe ego | 89 % | 8 % | 3 % |
-| **+ vận tốc của vật (app)** | **99 %** | 1 % | 0 % |
-| + kéo theo điểm LiDAR (không dùng) | 91 % | 9 % | 0 % |
-
-Vật đứng yên đúng 100 %, vật đang chạy 94 %. Mỗi lần chép người gán còn phải vẽ 3 % vật mới xuất hiện và xoá 3 % cuboid
-của vật đã đi khỏi. Bước "kéo theo điểm LiDAR" bị tắt vì trên train nó làm kết quả kém đi ở mọi ngưỡng thử (97 % →
-91–96 %): cuboid ôm cả vật còn điểm LiDAR chỉ nằm ở mặt hướng về cảm biến. Chép nối tiếp nhiều frame mà không sửa thì sai
-dồn (còn 53 % đúng sau 5 frame, `--chain 5`) – công cụ để chép rồi kiểm từng frame, không phải để chép mù. Lưu ý: frame
-nguồn ở đây là GT (rất mượt); với nhãn người gán, tỉ lệ đúng sẽ thấp hơn – đo được khi chạy pilot.
-
-## Kiểm tra trên dữ liệu mới (nuScenes val đầy đủ)
-
-Mọi số đo ở trên dùng nuScenes-mini (2 scene val). Để kiểm tra trên dữ liệu chưa từng thấy, tool được **đóng băng** ở
-commit `0a2e424` (ngưỡng `configs/lidar_qc.json` học từ 8 scene mini train, không đổi) rồi chạy **một lần** trên
-**146 scene val chính thức** của nuScenes (150 scene trừ 4 scene có trong mini): 5857 keyframe, 180 421 cuboid; 107 scene
-ngày, 24 mưa, **15 đêm**. Chỉ cần gói metadata (`v1.0-trainval_meta.tgz`: mọi nhãn + vị trí xe), nên đo được các kiểm
-tra không cần LiDAR / ảnh: theo thời gian, kích thước, chồng nhau, và chép cuboid. Lỗi cài như mọi lần đo.
-
-```
-python -m labeler.eval_heldout --nusc-root D:/data/nuscenes-trainval [--no-instance]
+```bash
+run_dev.bat                                   # giao diện ở http://localhost:5173, tự nạp lại khi sửa frontend
+python tests/test_lidar_qc.py                 # test kiểm tra LiDAR + thời gian, không cần dữ liệu
 ```
 
-| nối vật bằng `instance_token` | ngày | mưa | **đêm** | tất cả | (mini val) |
-|---|---|---|---|---|---|
-| recall dời chỗ | 96 % | 96 % | 97 % | 96 % | 96–99 % |
-| recall sai kích thước | 100 % | 100 % | 100 % | 100 % | 99–100 % |
-| recall xoay 90° | 94 % | 96 % | 97 % | 95 % | 99 % |
-| recall đổi class | 100 % | 100 % | 100 % | 100 % | 99–100 % |
-| **mọi lỗi** | **98 %** | **98 %** | **99 %** | **98 %** | 98–99 % |
-| báo động giả theo thời gian / frame | 0,09 | 0,06 | 0,03 | 0,08 | 0,07 |
-| chép cuboid (Ctrl+B) đúng ngay | 97 % | 98 % | 94 % | 97 % | 99 % |
+Sửa code backend thì phải chạy lại `run_app.bat` (đóng cửa sổ cũ trước). Chỉnh lại ngưỡng và chạy các bài đo: xem
+[docs/EVALUATION.md](docs/EVALUATION.md#7-chạy-lại).
 
-Kiểm tra theo thời gian và chép cuboid giữ nguyên trên dữ liệu mới, **kể cả ban đêm** (camera không cần). Nối chỉ bằng vị
-trí (`--no-instance`, như cuboid tự vẽ không dùng Ctrl+B): mọi lỗi 92 %, dời chỗ 80 %, báo động giả theo thời gian
-0,9 / frame.
-
-**Hai kiểm tra không giữ được:** *Kích thước phi lý* báo nhầm 0,85 / frame (barrier, cọc, trailer, xe công trình, xe tải
-– khoảng kích thước học từ quá ít vật của mini) và *Chồng nhau* 0,46 / frame (phần lớn là **đầu kéo + rơ-moóc** chồng ở
-khớp nối – đúng thực tế – rồi người đi bộ đứng sát nhau). Bản sửa (v2) ở mục dưới.
-
-Chưa đo được trên dữ liệu mới: kiểm tra LiDAR và camera (cần gói dữ liệu cảm biến, chưa tải).
-
-**Bản v2 (sửa sau khi thấy kết quả trên, nên kém khách quan hơn bản v1):**
-
-- *Kích thước phi lý*: khoảng kích thước mỗi class học từ **700 scene train** của nuScenes đầy đủ (chỉ gói metadata,
-  không đụng tới val) thay vì 8 scene mini; độ nới chọn chia scene thành 10 nhóm (ra ×1,225, trước là ×1,4):
-  `python -m labeler.calib_lidar --annotations-from D:/data/nuscenes-trainval`. Ngưỡng LiDAR giữ nguyên.
-- *Chồng nhau*: chỉ báo khi **hai xe** chồng nhau (vật cứng không lồng vào nhau được), trừ đầu kéo + rơ-moóc; người, xe đạp,
-  cọc, barrier chỉ báo khi hai cuboid **cùng class chồng ≥ 60 %** (gán trùng một vật). Trên 700 scene train: 0,01 / frame.
-
-| 146 scene val, nối bằng `instance_token` | v1 | **v2** |
+| biến môi trường | mặc định | |
 |---|---|---|
-| báo động giả kích thước phi lý / frame | 0,85 | **0,14** |
-| báo động giả chồng nhau / frame | 0,46 | **0,03** |
-| báo động giả mọi kiểm tra không cần cảm biến / frame | 1,39 | **0,25** (đêm 0,04) |
-| recall mọi lỗi | 98 % | 98 % |
-| recall sai kích thước – riêng kiểm tra kích thước | 48 % | 51 % |
+| `NUSC_ROOT` | `data/nuscenes` (hoặc `D:\data\nuscenes`) | thư mục nuScenes |
+| `NUSC_VERSION` | `v1.0-mini` | phiên bản nuScenes |
+| `M44_CFG` | `configs/tuned.json` | ngưỡng kiểm tra camera |
+| `ANTHROPIC_API_KEY` | – | bật chat với Claude (hoặc file `.anthropic.env`) |
+| `M44_LLM_MODEL`, `M44_LLM_EFFORT` | `claude-opus-5-5`, `low` | model và mức suy nghĩ của trợ lý |
 
-Nối chỉ bằng vị trí: báo động giả 2,14 → 1,00 / frame, recall 92 %. Trên mini val, v2 đổi rất ít: LiDAR bắt 53 % lỗi
-ở cuboid camera không kiểm được (v1 52 %, sai kích thước 65 → 72 %), báo động giả LiDAR 2,93 → 2,88 / frame, cờ chắc chắn
-vẫn 98 % trúng lỗi thật.
-
-## Xuất
-
-- `Xuất nuScenes` (`GET /api/export?fmt=nuscenes`): mọi frame đã lưu theo định dạng nuScenes detection results (hệ
-  global, tâm hình học, wlh, quaternion chỉ yaw, score 1) – xuất GT ra khớp `sample_annotation` tới 1e-13 m.
-- `Xuất JSON` (`fmt=raw`): `{sample: cuboid}` trong hệ LiDAR, đúng định dạng của app.
-- CVAT: `pip install -r requirements-cvat.txt`, đặt `CVAT_URL` + `CVAT_ACCESS_TOKEN` (hoặc `.cvat.env`), rồi
-  `cd backend && python -m labeler.export_cvat --name "..."` → tạo task point cloud mới (kèm 6 ảnh) và đẩy cuboid lên.
+Định dạng dữ liệu trao đổi giữa các module: [docs/json-formats.md](docs/json-formats.md).
 
 ## API
 
 | | |
 |---|---|
-| `GET /api/frames` | danh sách frame (val trước, rồi train – "val 25" giống repo M44) |
-| `GET /api/frames/{i}?init=gt\|empty` | calib 6 camera, cuboid hiện tại (đã lưu, nếu chưa thì GT hoặc rỗng), YOLO, kết quả check |
-| `GET /api/frames/{i}/points` | LiDAR float32 x, y, z, intensity |
-| `GET /api/frames/{i}/image/{cam}` | ảnh camera |
-| `POST /api/frames/{i}/check` | kiểm tra cuboid chưa lưu (gọi trong lúc kéo): cờ camera + LiDAR + thời gian, `qc`, `coverage` |
+| `GET /api/frames` | danh sách frame (val trước, rồi train) |
+| `GET /api/frames/{i}?init=gt\|empty` | calib, cuboid hiện tại, box YOLO, kết quả kiểm tra |
+| `GET /api/frames/{i}/points` · `/image/{cam}` | point cloud (float32 x, y, z, intensity) · ảnh camera |
+| `POST /api/frames/{i}/check` | kiểm tra cuboid chưa lưu: cờ ba nguồn, `qc` từng cuboid, `coverage` |
 | `PUT /api/frames/{i}/boxes` | lưu cuboid |
-| `POST /api/frames/{i}/propose` | gợi ý cuboid cho một box 2D `{cam, bbox, cls}` |
-| `POST /api/frames/{i}/propose_missing` | gợi ý cho mọi `MISSING_3D` của các cuboid gửi lên |
-| `POST /api/frames/{i}/events` | log phản hồi của reviewer (`flag_accept` / `flag_false_alarm` / `flag_clear`) |
-| `GET /api/feedback/summary` | số cờ đúng / báo động giả theo loại cờ (để chỉnh lại ngưỡng) |
-| `GET /api/export?fmt=raw\|nuscenes` | tải mọi frame đã lưu |
+| `POST /api/frames/{i}/propagate` | chép cuboid từ frame trước / sau |
+| `POST /api/frames/{i}/propose` · `/propose_missing` | gợi ý cuboid từ một box 2D · cho mọi vật thiếu cuboid |
+| `POST /api/frames/{i}/suggest` | gợi ý sửa cho một cờ |
+| `POST /api/frames/{i}/events` · `GET /api/feedback/summary` | ghi / tổng hợp phán quyết ✓ / ✗ |
+| `POST /api/assistant/chat` | chat với Claude (server-sent events) |
+| `POST /api/frames/{i}/pilot_submit` · `GET /api/pilot/results` | nộp bài và kết quả pilot |
+| `GET /api/export?fmt=raw\|nuscenes` · `GET /api/config` | xuất mọi frame đã lưu · cấu hình |
 
-## Lộ trình
+## Giới hạn và lộ trình
 
-- [x] **P1 – xem:** BEV + 6 camera + cờ M44, chọn cuboid đồng bộ giữa BEV và ảnh, N/P đi qua cờ.
-- [x] **P2 – sửa:** kéo / xoay / co giãn cuboid trên BEV + 2 view ngang, thêm / xoá / đổi class, chiếu lên camera ngay
-  trong trình duyệt (khớp Python tới 1e-13 px), check lại sau 150 ms, hoàn tác, lưu (Ctrl+S), reset GT / xoá hết.
-- [x] **P3 – gợi ý:** cuboid từ box YOLO (bấm ô cam, Shift+bấm box YOLO, G / Shift+G cho mọi ô cam), phản hồi cờ
-  (1 đúng / 2 báo động giả, lưu lại, `GET /api/feedback/summary`), xuất nuScenes / JSON thô / CVAT.
-- [x] **P4 – đo (công cụ):** chấm điểm giống pilot M44 (`labeler/score.py`), mốc "chỉ Shift+G" trên cả val
-  (`labeler/eval_assist.py`), chế độ pilot trong app (`?pilot=<tên>&frame=60[&assist=0]`: frame cố định bắt đầu rỗng,
-  không lộ GT, đồng hồ, tự lưu nháp, nút Nộp bài chấm ngay), báo cáo so với CVAT (`labeler/pilot_report.py`).
-  Quy trình cho team: [docs/PILOT_APP.md](docs/PILOT_APP.md).
-- [ ] **P4 – đo (người):** 4 người chạy pilot theo docs/PILOT_APP.md, rồi `pilot_report`.
-- [x] **P5 – kiểm tra cuboid camera không thấy:** LiDAR (bắn tia, kích thước, mặt đất, chồng nhau, điểm tràn, hướng) +
-  thời gian (kích thước / vị trí / hướng / class theo chuỗi), gợi ý sửa, mức tin cậy QC, độ phủ; chỉnh trên train,
-  đo trên val (`labeler/calib_lidar.py`, `labeler/eval_lidar.py`).
-- [x] **P6 – chép cuboid sang frame sau:** bù ego motion + vận tốc vật, giữ mã vật (Ctrl+B), ô mã vật trong inspector;
-  đo bằng `labeler/eval_propagate.py` (val: 99 % cuboid chép đúng ngay).
-- [ ] **P5 tiếp:** cộng dồn 3–5 sweep cho vật đứng yên; PointPillars làm ý kiến thứ hai; chỉnh lại ngưỡng từ phản hồi
-  ✓ / ✗ của người gán (`GET /api/feedback/summary`).
+**Giới hạn hiện tại**
+- Số đo dùng lỗi **cài tổng hợp**; lỗi của người gán thật chưa được đo (pilot đang chuẩn bị).
+- Kiểm tra LiDAR và camera mới được đo trên nuScenes-mini; kiểm tra LiDAR còn báo nhầm khá nhiều (~2,9 / frame, chủ yếu
+  xe tối màu cho tia laser xuyên qua) – nhóm cờ "Chắc chắn" che phần lớn nhược điểm này.
+- Chỉ hỗ trợ nuScenes (một LiDAR 32 tia + 6 camera); Windows được kiểm nhiều nhất.
+
+**Lộ trình**
+- [x] Xem, sửa, gợi ý cuboid từ ảnh, xuất nuScenes / CVAT
+- [x] Kiểm tra camera trong lúc gán, gợi ý sửa, trợ lý Claude
+- [x] Kiểm tra LiDAR và theo thời gian, mức chắc chắn, độ phủ
+- [x] Chép cuboid sang frame sau, mã vật
+- [x] Kiểm tra trên 146 scene nuScenes mới (theo thời gian, kích thước, chồng nhau, chép cuboid)
+- [ ] Pilot với người gán thật: nhiều frame liên tiếp, có / không có trợ giúp ([docs/PILOT_APP.md](docs/PILOT_APP.md))
+- [ ] Đo kiểm tra LiDAR + camera trên dữ liệu mới; chỉnh ngưỡng LiDAR trên tập lớn hơn
+- [ ] Cộng dồn nhiều sweep LiDAR; vận tốc ngay từ frame đầu scene; chỉnh ngưỡng từ phán quyết ✓ / ✗
+
+## Nguồn gốc, dữ liệu và giấy phép
+
+- Lõi kiểm tra camera (`backend/m44/`) lấy từ dự án
+  [T054-M44-3d-to-2d-tool](https://github.com/cuonglatao1/T054-M44-3d-to-2d-tool) (commit `4149620`); loader được bổ sung
+  `lidar2global`, `scene`, `timestamp` và mã vật. Sửa logic kiểm tra camera thì cần sửa ở cả hai repo.
+- Dữ liệu: [nuScenes](https://www.nuscenes.org/) (Motional), theo điều khoản sử dụng của nuScenes – dùng cho mục đích phi
+  thương mại; repo không chứa dữ liệu, mỗi người tự tải bằng tài khoản của mình.
+- Phát hiện 2D: [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) (`yolo11m`, COCO); repo kèm sẵn kết quả
+  YOLO cho nuScenes-mini.
+- Thực hiện trong khuôn khổ đề tài M44 – chương trình AI20K. Mã nguồn chưa gắn giấy phép.
