@@ -82,6 +82,25 @@ màu hoặc nhiều kính cho tia laser xuyên qua – rồi mặt đất), th�
 | **Chắc chắn** | cuboid bị ≥ 2 nguồn cùng cờ | 98 % | 0,14 | 64 % |
 | **Cần xem** | 1 nguồn | 45 % | 5,30 | thêm 35 % (tổng 99 %) |
 
+## 3b. Vật bị quên gán (lỗi "xoá cuboid")
+
+Trước đây chỉ camera bắt được lỗi này (YOLO thấy vật mà không có cuboid). `labeler/missing.py` thêm hai nguồn: **thời
+gian** (vật có cuboid ở frame trước và sau, frame này thiếu → dự đoán bằng nội suy) và **LiDAR** (có điểm ở chỗ dự đoán;
+nếu tia laser xuyên qua trống trơn thì bỏ cờ). Cờ của cùng một vật từ các nguồn được gộp để tính mức chắc chắn.
+
+| mini val, lỗi xoá | n | camera | LiDAR | thời gian | **tất cả** |
+|---|---|---|---|---|---|
+| vật camera kiểm được | 96 | 41 % | 65 % | 83 % | **92 %** |
+| vật camera **không** kiểm được | 173 | 7 % | 25 % | 68 % | **70 %** |
+
+Trên GT sạch của mini val không có cờ "thiếu" nào. Trên **146 scene val mới** (chỉ phần thời gian): phát hiện **77 %**
+vật bị xoá (ngày 77 %, mưa 76 %, đêm 77 %), báo nhầm 0,06 / frame; nối chỉ bằng vị trí: 55 %, báo nhầm 0,45 / frame.
+Phần không bắt được chủ yếu là vật ở đầu / cuối scene hoặc chỉ xuất hiện ở một phía (đi vào / ra khỏi tầm nhìn); nới
+khoảng nhìn từ 1,1 s lên 1,6 s không thêm được gì.
+
+Với mọi loại lỗi gộp lại (cả xoá), mini val: 98 % trên cuboid camera kiểm được, 93 % trên cuboid camera không kiểm được;
+146 scene mới: 93 %.
+
 ## 4. Gợi ý sửa
 
 Áp dụng gợi ý cho mỗi lỗi bị cờ rồi chấm theo luật "đúng".
@@ -89,6 +108,7 @@ màu hoặc nhiều kính cho tia laser xuyên qua – rồi mặt đất), th�
 | nguồn cờ | sửa đúng | ghi chú |
 |---|---|---|
 | thời gian | 92 % | lấy kích thước trung vị / vị trí nội suy / class đa số |
+| thiếu cuboid (thời gian / LiDAR) | – | tạo cuboid nội suy; thử trên val 25: lệch 3–4 cm so với cuboid gốc |
 | LiDAR | 47 % | trượt / dựng lại theo điểm, đổi class khi kích thước khớp class khác loại |
 | camera (`eval_fix`) | 51 % | đổi class 93 %, xoay 79 %, kích thước 74 %, dời 43 %, tạo lại cuboid đã xoá 18 % |
 
@@ -110,6 +130,29 @@ trúng lỗi thật 96 %, *tin cậy thấp* 73 %.
 Vật đứng yên đúng 100 %, đang chạy 94 %; mỗi lần chép còn ~3–4 % vật mới phải vẽ và ~3–4 % cuboid phải xoá. Bước kéo theo
 điểm LiDAR làm kém đi ở mọi ngưỡng thử trên train nên bị tắt. Chép nối tiếp không sửa thì sai dồn (53 % đúng sau 5
 frame, `--chain 5`). Trên 146 scene mới: 97 % (đêm 94 %).
+
+## 5b. Công sức gán cả scene từ đầu (người gán mô phỏng)
+
+Chưa có pilot người thật, nên một người gán được mô phỏng trên 2 scene mini val (81 keyframe, 4441 cuboid), frame nối
+frame: frame đầu bấm Shift+G; mỗi frame sau bấm Ctrl+B rồi Shift+G; cái gì tool làm chưa đúng thì sửa tay; người gán làm
+đúng hết một frame rồi mới sang frame sau (`python -m labeler.eval_effort --split val [--shift-g every|first|never]`).
+Mỗi cuboid tool đặt được chấm theo luật "đúng"; mỗi thao tác tay (chỉnh / vẽ / xoá) tính là 1, gán tay hoàn toàn thì
+mỗi vật là 1 lần vẽ.
+
+| cách dùng | cuboid tool đặt đúng ngay | lệch nhẹ (chỉnh 1 lần) | phải vẽ tay | xoá | thao tác tay | **tiết kiệm** |
+|---|---|---|---|---|---|---|
+| Ctrl+B + Shift+G mọi frame | 94 % | 2 % | 4 % | 191 | 458 | 90 % |
+| **Ctrl+B + Shift+G frame đầu** | **94 %** | 1 % | 5 % | 142 | **410** | **91 %** |
+| chỉ Ctrl+B | 94 % | 1 % | 5 % | 135 | 406 | 91 % |
+
+(car + người: 94 % đúng ngay, tiết kiệm 91 %.) Ctrl+B đặt 4361 cuboid, đúng 96 %, phải xoá 3 % (vật đã đi khỏi). Shift+G
+gần như không thêm gì: ở frame đầu nó dựng đúng 5 %, lệch nhẹ 15 % số vật; ở các frame sau, các ô cam còn lại sau khi chép
+phần lớn là YOLO nhận nhầm hoặc vật không được gán, nên 77 % gợi ý phải xoá – vì vậy nên bấm Shift+G ở frame đầu, còn sau
+Ctrl+B chỉ bấm từng ô cam đáng tin.
+
+Giới hạn: frame trước luôn đúng (= GT), trong khi người thật để lại lỗi và cuboid chép mang theo lỗi đó (các cờ kiểm tra
+sẽ chỉ ra); "1 thao tác cho mỗi vật vẽ tay" đánh giá thấp công vẽ tay, nên con số tiết kiệm là ước lượng thận trọng về
+số thao tác, không phải thời gian.
 
 ## 6. Gợi ý cuboid từ ảnh (2D → 3D)
 
@@ -136,6 +179,7 @@ python -m labeler.calib_lidar --annotations-from D:/data/nuscenes-trainval    # 
 python -m labeler.eval_lidar --split val [--no-instance]                      # mục 3, 4
 python -m labeler.eval_heldout --nusc-root D:/data/nuscenes-trainval [--no-instance]   # mục 2
 python -m labeler.eval_propagate --split val [--chain 5]                      # mục 5
+python -m labeler.eval_effort --split val [--shift-g first]                 # mục 5b
 python -m labeler.eval_fix --split val                                        # mục 4, gợi ý camera
 python -m labeler.eval_propose --split val                                    # mục 6
 python -m labeler.eval_assist --split val                                     # mục 6, mốc Shift+G

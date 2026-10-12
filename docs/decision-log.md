@@ -2,6 +2,25 @@
 
 Mỗi quyết định kỹ thuật: bối cảnh → quyết định → lý do → hệ quả. Mới nhất ở trên cùng.
 
+## D-022 · Đo công sức bằng người gán mô phỏng thay cho pilot người thật
+- **Bối cảnh:** còn 2 tuần, nhóm khó tổ chức pilot; cần số cho câu "tool giúp gán nhanh hơn bao nhiêu".
+- **Quyết định:** `labeler/eval_effort.py` mô phỏng gán cả scene từ đầu bằng chính các công cụ của app (Shift+G, Ctrl+B),
+  chấm từng cuboid tool đặt, đếm thao tác tay còn lại (chỉnh / vẽ / xoá) so với vẽ tay mọi vật.
+- **Kết quả (mini val):** tool đặt đúng ngay 94 % cuboid, thao tác tay còn 9 % (tiết kiệm 91 %); gần hết nhờ Ctrl+B.
+  Shift+G ở frame sau làm hại (77 % gợi ý phải xoá) → khuyến nghị chỉ dùng ở frame đầu.
+- **Giới hạn:** frame trước được coi là đúng; đếm thao tác, không đo thời gian; không thay được pilot người thật.
+
+## D-021 · Phát hiện vật bị quên gán không cần camera
+- **Bối cảnh:** lỗi "quên gán một vật" chỉ camera bắt được (MISSING_3D, cần YOLO thấy vật): trên vật camera không thấy
+  chỉ 7 %. LiDAR và thời gian kiểm cuboid đã có, không kiểm chỗ không có cuboid.
+- **Quyết định:** `labeler/missing.py`. Thời gian: vật có cuboid ở keyframe trước và sau (≤ 1,1 s, nối bằng mã vật hoặc
+  vị trí) mà frame này không có → cờ TRACK_MISSING, cuboid nội suy làm gợi ý. LiDAR: ≥ 5 điểm ở chỗ dự đoán → cờ
+  LIDAR_UNBOXED cùng nhóm; laser xuyên qua trống trơn → bỏ cờ. YOLO thấy vật thiếu cuboid trùng hình chiếu → gộp cùng
+  nhóm. `qc.py` tính mức chắc chắn theo nhóm (vật), không chỉ theo cuboid.
+- **Đã thử:** dò cụm điểm LiDAR không thuộc cuboid nào trên cả sweep – không làm vì cây, cột, tường cũng là cụm điểm
+  chưa gán (để cho PointPillars nếu làm sau).
+- **Kết quả:** mini val vật camera không thấy 7 % → 70 %; 146 scene mới 77 %, báo nhầm 0,06 / frame.
+
 ## D-020 · v2: khoảng kích thước học từ 700 scene train; "chồng nhau" theo cặp class
 - **Bối cảnh:** D-019 – trên 146 scene val, kích thước phi lý báo nhầm 0,85 / frame (barrier, cọc, trailer, xe công trình:
   mini có quá ít vật), chồng nhau 0,46 / frame (đầu kéo + rơ-moóc, người đứng sát nhau).

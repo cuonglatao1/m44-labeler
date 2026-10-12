@@ -54,6 +54,8 @@ M44 Labeler kiểm chúng bằng một chuỗi bổ sung cho nhau:
 - LiDAR: cuboid rỗng, lấn khoảng trống, điểm tràn ra ngoài, lệch hướng so với đám điểm, kích thước phi lý, lơ lửng / chìm,
   chồng nhau.
 - Thời gian: nhảy vị trí, nhảy kích thước, nhảy hướng (bắt cả quay ngược 180°), đổi class giữa các frame.
+- **Vật bị quên gán**, kể cả khi camera không thấy: vật có ở frame trước và sau mà frame này thiếu (thời gian), xác nhận
+  bằng điểm LiDAR ở chỗ đó; gợi ý tạo cuboid ở vị trí nội suy (phím `G`).
 - Cờ được chia **Chắc chắn** (≥ 2 nguồn cùng báo – trúng lỗi thật 98 %) / **Cần xem** (1 nguồn); mỗi cuboid có **mức tin
   cậy QC** và thẻ tổng quan cho biết độ phủ của từng nguồn.
 - **Gợi ý sửa** cho mọi loại cờ, có xem trước nét đứt; cờ một nguồn phải xem trước mới áp dụng được.
@@ -74,9 +76,12 @@ và cách chạy lại ở [docs/EVALUATION.md](docs/EVALUATION.md).
 |---|---|---|
 | tỉ lệ cuboid kiểm được (độ phủ, mini val) | 35 % | **100 %** |
 | lỗi bắt được trên cuboid camera không kiểm được (mini val) | 4 % | **99 %** |
+| vật bị quên gán mà camera không thấy được phát hiện (mini val) | 7 % | **70 %** |
 | lỗi bắt được, 146 scene val **mới** (ngày / mưa / **đêm**)¹ | – | **98 % / 98 % / 99 %** |
+| vật bị quên gán được phát hiện, 146 scene mới¹ | – | **77 %** (0,06 báo nhầm / frame) |
 | cờ nhóm "Chắc chắn" trúng lỗi thật (mini val) | – | **98 %** (0,14 báo nhầm / frame) |
 | cuboid chép sang frame sau đúng ngay, 146 scene mới | – | **97 %** |
+| gán cả scene từ đầu (người gán mô phỏng, mini val): thao tác tay so với vẽ tay mọi vật | 100 % | **9 %** (tool đặt đúng ngay 94 % cuboid) |
 
 ¹ Kiểm tra theo thời gian + kích thước + chồng nhau, tool đóng băng trước khi đo; kiểm tra LiDAR và camera chưa được đo
 trên dữ liệu mới.
@@ -127,12 +132,14 @@ nguồn), **Trợ lý** (gợi ý sửa, chat) và bảng thuộc tính. Kéo đ
 | `Ctrl+B` · `Ctrl+Shift+B` | chép cuboid từ frame trước / sau |
 | bấm ô cam · `Shift`+bấm box YOLO · `G` · `Shift+G` | gợi ý cuboid từ ảnh |
 | `N` / `P` · `1` / `2` | cờ tiếp / trước · cờ đúng / báo động giả |
+| `G` trên cờ "Thiếu cuboid" | tạo cuboid ở vị trí dự đoán |
 | `Del` · `Esc` · `Ctrl+Z` / `Ctrl+Y` · `Ctrl+S` | xoá · bỏ chọn · hoàn tác / làm lại · lưu |
 | `←` `→` · `C` · `3` · `\` | đổi frame · căn giữa · xoay 3D · thu gọn thanh công cụ |
 
 **Hai cách làm việc**
-- *Gán từ đầu:* chọn "Frame mới: Rỗng" (menu ⋯). Các ô cam "Thiếu cuboid" là danh sách vật cần gán (`Shift+G` gợi ý tất
-  cả); sang frame sau thì `Ctrl+B` rồi chỉnh các cuboid có cờ.
+- *Gán từ đầu:* chọn "Frame mới: Rỗng" (menu ⋯). Ở frame đầu, các ô cam "Thiếu cuboid" là danh sách vật cần gán
+  (`Shift+G` gợi ý tất cả); sang frame sau thì `Ctrl+B` rồi chỉnh các cuboid có cờ, vật mới thì bấm từng ô cam (Shift+G ở
+  frame sau chủ yếu gợi ý vật YOLO nhận nhầm – xem [đánh giá](docs/EVALUATION.md#5b-công-sức-gán-cả-scene-từ-đầu-người-gán-mô-phỏng)).
 - *Kiểm tra nhãn có sẵn:* mở frame với nhãn gốc (hoặc nhãn đã lưu), xử lý nhóm cờ **Chắc chắn** trước, rồi xem nhóm
   **Cần xem**; bấm ✗ cho cờ báo nhầm.
 
@@ -168,6 +175,9 @@ môi trường). Không có khoá thì thẻ gợi ý sửa vẫn chạy bình t
   sai), **trong** cuboid là chạm vật, **sau** cuboid là laser đi xuyên qua chỗ cuboid khai là có vật. Nhờ vậy phân biệt
   được "bị che" với "cuboid rỗng". Thêm: điểm cùng vật tràn ra ngoài, trục đám điểm, đáy so với mặt đất, kích thước so với
   khoảng của class, hai xe chồng nhau.
+- **Vật bị quên gán** (`labeler/missing.py`): vật có cuboid ở frame trước và frame sau mà frame này không có → dự đoán
+  cuboid bằng nội suy; LiDAR có điểm ở đó thì thêm một nguồn xác nhận, còn tia laser xuyên qua trống trơn thì bỏ (vật
+  thật sự không ở đó); YOLO thấy vật chưa có cuboid đúng chỗ đó thì gộp làm một.
 - **Thời gian** (`labeler/track.py`): vật được nối qua các keyframe (±2 s) bằng mã vật (`instance_token` của nuScenes, hoặc
   mã `obj_…` mà app gán và giữ khi chép cuboid), sau khi bù chuyển động xe ego. Kích thước phải gần trung vị của chuỗi; vị
   trí và hướng gần dự đoán nội suy / ngoại suy tốt nhất (một frame bên cạnh sai không làm cuboid đúng bị cờ); class phải
@@ -187,6 +197,7 @@ backend/
     dataset.py        frame nuScenes, point cloud, ảnh, cache YOLO
     store.py          SQLite: nhãn đã lưu, nhật ký, phán quyết ✓/✗, bài pilot
     lidar_qc.py       kiểm tra LiDAR            track.py      kiểm tra theo thời gian
+    missing.py        vật bị quên gán (thời gian + LiDAR + camera)
     qc.py             mức chắc chắn của cờ      propagate.py  chép cuboid sang frame sau
     propose.py        gợi ý cuboid từ box 2D    fix.py, fix_qc.py  gợi ý sửa
     assistant.py      trợ lý Claude (tuỳ chọn)  precompute.py cache YOLO
@@ -252,6 +263,7 @@ Sửa code backend thì phải chạy lại `run_app.bat` (đóng cửa sổ cũ
 - [x] Kiểm tra LiDAR và theo thời gian, mức chắc chắn, độ phủ
 - [x] Chép cuboid sang frame sau, mã vật
 - [x] Kiểm tra trên 146 scene nuScenes mới (theo thời gian, kích thước, chồng nhau, chép cuboid)
+- [x] Phát hiện vật bị quên gán không cần camera (thời gian + LiDAR)
 - [ ] Pilot với người gán thật: nhiều frame liên tiếp, có / không có trợ giúp ([docs/PILOT_APP.md](docs/PILOT_APP.md))
 - [ ] Đo kiểm tra LiDAR + camera trên dữ liệu mới; chỉnh ngưỡng LiDAR trên tập lớn hơn
 - [ ] Cộng dồn nhiều sweep LiDAR; vận tốc ngay từ frame đầu scene; chỉnh ngưỡng từ phán quyết ✓ / ✗
