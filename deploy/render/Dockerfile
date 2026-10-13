@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt huggingface_hub
 ARG DEMO_DATA=cuonglatao/m44-demo-data
 RUN mkdir -p /app/demo_data && python -c "from huggingface_hub import hf_hub_download; \
 print(hf_hub_download('${DEMO_DATA}', 'm44-demo-data.tar', repo_type='dataset', local_dir='/tmp/dl'))" \
-    && tar -xf /tmp/dl/m44-demo-data.tar -C /app/demo_data && rm -rf /tmp/dl /root/.cache
+    && tar --no-same-owner -xf /tmp/dl/m44-demo-data.tar -C /app/demo_data && rm -rf /tmp/dl /root/.cache
 COPY . .
 COPY --from=web /app/frontend/dist frontend/dist
 ENV M44_DEMO=1 \
