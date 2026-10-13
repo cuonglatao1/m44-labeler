@@ -7,7 +7,11 @@ pilot never touches the real labels of a frame and several people can label the 
 import json
 import sqlite3
 import time
+from contextvars import ContextVar
 from pathlib import Path
+
+# public demo (M44_DEMO=1): every visitor's labels live under `demo/<session>/...`, set per request by main.py
+SESSION: ContextVar[str | None] = ContextVar('m44_session', default=None)
 
 
 class Store:
@@ -38,8 +42,14 @@ class Store:
                             (now, sample, 'save', json.dumps({'n_boxes': len(boxes)})))
 
     def labelled(self) -> set[str]:
-        """Frames with saved real labels (pilot drafts excluded)."""
-        return {r[0] for r in self.db.execute("SELECT sample FROM labels WHERE sample NOT LIKE 'pilot/%'")}
+        """Frames with saved real labels (pilot drafts excluded); in the demo, only this visitor's."""
+        sid = SESSION.get()
+        if sid:
+            pre = f'demo/{sid}/'
+            return {r[0][len(pre):] for r in self.db.execute('SELECT sample FROM labels WHERE sample LIKE ?', (pre + '%',))
+                    if not r[0][len(pre):].startswith('pilot/')}
+        return {r[0] for r in self.db.execute(
+            "SELECT sample FROM labels WHERE sample NOT LIKE 'pilot/%' AND sample NOT LIKE 'demo/%'")}
 
     def log(self, sample: str | None, kind: str, data: dict) -> None:
         with self.db:
@@ -106,5 +116,7 @@ class Store:
 
 
 def pilot_key(sample: str, pilot: str | None, assist: bool) -> str:
-    """Storage key of a frame: the sample token, or the pilot's own draft of it."""
-    return f"pilot/{pilot}/{'a' if assist else 'n'}/{sample}" if pilot else sample
+    """Storage key of a frame: the sample token, or the pilot's own draft of it; prefixed by the demo session."""
+    key = f"pilot/{pilot}/{'a' if assist else 'n'}/{sample}" if pilot else sample
+    sid = SESSION.get()
+    return f'demo/{sid}/{key}' if sid else key

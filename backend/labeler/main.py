@@ -3,10 +3,11 @@
   cd backend && python -m uvicorn labeler.main:app --port 8770
 """
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,7 +24,7 @@ from .fix import suggest
 from .export import to_nuscenes
 from .propose import propose, propose_missing
 from .score import summary
-from .store import Store, pilot_key
+from .store import SESSION, Store, pilot_key
 
 ROOT = Path(__file__).resolve().parents[2]
 NUSC_ROOT = os.environ.get('NUSC_ROOT', str(ROOT / 'data' / 'nuscenes'))
@@ -31,12 +32,30 @@ CFG = {**DEFAULT_CFG, **load_cfg(os.environ.get('M44_CFG', str(ROOT / 'configs' 
 
 LQC = lidar_qc.load_cfg()  # LiDAR + temporal QC thresholds (configs/lidar_qc.json)
 
-ds = Dataset(NUSC_ROOT, os.environ.get('NUSC_VERSION', 'v1.0-mini'), ROOT / 'cache' / 'dets')
-store = Store(ROOT / 'cache' / 'labels.db')
+# public demo: M44_DEMO=1 keeps every visitor's labels apart (X-M44-Session header / ?session=), M44_SPLITS=val
+# loads only the frames shipped with the demo
+DEMO = os.environ.get('M44_DEMO') == '1'
+SPLITS = tuple(os.environ.get('M44_SPLITS', 'val,train').split(','))
+
+ds = Dataset(NUSC_ROOT, os.environ.get('NUSC_VERSION', 'v1.0-mini'),
+             Path(os.environ.get('M44_DETS', ROOT / 'cache' / 'dets')), SPLITS)
+store = Store(os.environ.get('M44_DB', ROOT / 'cache' / 'labels.db'))
 
 app = FastAPI(title='M44 Labeler')
 app.add_middleware(CORSMiddleware, allow_origins=['http://localhost:5173'], allow_methods=['*'],
                    allow_headers=['*'])
+
+
+@app.middleware('http')
+async def demo_session(request: Request, call_next):
+    if not DEMO:
+        return await call_next(request)
+    sid = request.headers.get('x-m44-session') or request.query_params.get('session') or 'anon'
+    token = SESSION.set(re.sub(r'[^A-Za-z0-9_-]', '', sid)[:40] or 'anon')
+    try:
+        return await call_next(request)
+    finally:
+        SESSION.reset(token)
 
 
 class Box(BaseModel):
@@ -338,7 +357,7 @@ def feedback_summary():
 @app.get('/api/export')
 def export(fmt: Literal['raw', 'nuscenes'] = 'raw'):
     """Every saved frame: raw = {sample: boxes} (LiDAR frame); nuscenes = detection-results JSON."""
-    saved = {s: store.get_boxes(s) for s in store.labelled() if s in ds.by_sample}
+    saved = {s: store.get_boxes(pilot_key(s, None, True)) for s in store.labelled() if s in ds.by_sample}
     if fmt == 'raw':
         body = saved
     else:
@@ -380,7 +399,7 @@ def assistant_reset(body: dict):
 @app.get('/api/config')
 def get_config():
     ok, why = assistant.available()
-    return {'cfg': CFG, 'lidar_qc': LQC, 'nusc_root': NUSC_ROOT, 'n_frames': len(ds.frames),
+    return {'cfg': CFG, 'lidar_qc': LQC, 'nusc_root': None if DEMO else NUSC_ROOT, 'n_frames': len(ds.frames), 'demo': DEMO,
             'llm': {'available': ok, 'reason': why, 'model': assistant.MODEL}}
 
 

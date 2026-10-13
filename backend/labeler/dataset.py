@@ -13,10 +13,10 @@ MAX_RANGE = 60.0  # m – points farther than this are not sent to the browser
 
 
 class Dataset:
-    def __init__(self, nusc_root: str, version: str, det_dir: Path):
+    def __init__(self, nusc_root: str, version: str, det_dir: Path, splits: tuple[str, ...] = ('val', 'train')):
         self.det_dir = det_dir
         self.frames: list[dict] = []
-        for split in ('val', 'train'):  # val first: "val frame N" means the same frame as in the M44 repo
+        for split in splits:  # val first: "val frame N" means the same frame as in the M44 repo
             for k, f in enumerate(load_frames_nusc(nusc_root, split, version)):
                 self.frames.append({**f, 'split': split, 'split_index': k})
         self.by_sample = {f['sample']: f for f in self.frames}

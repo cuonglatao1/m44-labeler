@@ -1,0 +1,11 @@
+.venv/
+.git/
+cache/
+data/
+out/
+weights/
+scratch/
+frontend/node_modules/
+frontend/dist/
+.anthropic.env
+.cvat.env

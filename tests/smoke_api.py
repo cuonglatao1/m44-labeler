@@ -44,6 +44,9 @@ def flagged(res, box_id):
 
 def test_list_frames():
     frames = get_json('/api/frames')
+    if get_json('/api/config').get('demo'):  # the public demo ships the mini val scenes only
+        assert len(frames) == 81 and all(f['split'] == 'val' for f in frames), len(frames)
+        return f'{len(frames)} frame val (bản demo)'
     assert len(frames) == 404, len(frames)
     assert [f['split'] for f in frames[:81]] == ['val'] * 81 and frames[81]['split'] == 'train'
     return f'{len(frames)} frame (81 val + 323 train)'

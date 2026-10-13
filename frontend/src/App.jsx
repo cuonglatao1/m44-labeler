@@ -61,6 +61,7 @@ export default function App() {
   const [tab, setTab] = useState(ASSIST ? 'issues' : 'objects')
   // assistant: chat thread, fix preview (dashed cuboid) and which suggestions were applied
   const [llm, setLlm] = useState({ available: false, model: '', reason: '' })
+  const [demo, setDemo] = useState(false)
   const [chat, setChat] = useState([])
   const [chatBusy, setChatBusy] = useState(false)
   const [preview, setPreview] = useState(null)
@@ -110,7 +111,7 @@ export default function App() {
 
   const refreshFrames = useCallback(() => api.frames().then(setFrames).catch(fail), [fail])
   useEffect(() => { refreshFrames() }, [refreshFrames])
-  useEffect(() => { fetchConfig().then((c) => setLlm(c.llm)).catch(() => {}) }, [])
+  useEffect(() => { fetchConfig().then((c) => { setLlm(c.llm); setDemo(!!c.demo) }).catch(() => {}) }, [])
 
   const load = useCallback((i, source = 'auto') => {
     setFrame(null); setSelected(null); setActiveFlag(null); setAddMode(false); setSavedAt(null)
@@ -763,6 +764,8 @@ export default function App() {
       <footer className="statusbar">
         <span className="hint">{hint}</span>
         <span className="grow" />
+        {demo && <><span className="stat-item" title="Nhãn bạn lưu chỉ trình duyệt này thấy. Dữ liệu: nuScenes-mini (Motional), CC BY-NC-SA 4.0 – không phải sản phẩm của Motional.">
+          Bản demo · 2 scene nuScenes-mini · nuScenes © Motional, CC BY-NC-SA 4.0</span><span className="sep" /></>}
         <span className="stat-item"><b>{boxes.length}</b> cuboid</span>
         {ASSIST && <><span className="sep" /><span className="stat-item"><b>{flags.length}</b> cờ</span>
           <span className="sep" /><span className="stat-item"><b>{frame?.dets.length ?? 0}</b> vật YOLO</span></>}

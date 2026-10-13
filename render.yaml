@@ -1,0 +1,10 @@
+# Render Blueprint for the public demo (see deploy/render/README.md)
+services:
+  - type: web
+    name: m44-labeler
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/config
+    autoDeploy: false

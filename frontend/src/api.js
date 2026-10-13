@@ -1,3 +1,14 @@
+// public demo: a per-browser id so every visitor gets their own labels (backend M44_DEMO=1, ignored otherwise)
+const SESSION = (() => {
+  const make = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36)
+  try {
+    let id = localStorage.getItem('m44.session')
+    if (!id) { id = make(); localStorage.setItem('m44.session', id) }
+    return id
+  } catch { return make() }
+})()
+const fetch = (url, opts = {}) => window.fetch(url, { ...opts, headers: { ...opts.headers, 'X-M44-Session': SESSION } })
+
 const json = (r) => {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json()
@@ -36,7 +47,7 @@ export const api = {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `${r.status} ${r.statusText}`)
       return r.json()
     }),
-  exportUrl: (fmt) => `/api/export?fmt=${fmt}`,
+  exportUrl: (fmt) => `/api/export?fmt=${fmt}&session=${SESSION}`,
   pilotSubmit: (i, boxes) =>
     fetch(withPilot(`/api/frames/${i}/pilot_submit`), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ boxes }),
