@@ -87,6 +87,9 @@ và cách chạy lại ở [docs/EVALUATION.md](docs/EVALUATION.md).
 ¹ Kiểm tra theo thời gian + kích thước + chồng nhau, tool đóng băng trước khi đo; kiểm tra LiDAR và camera chưa được đo
 trên dữ liệu mới.
 
+Chỉ số của đề M44 (mini val, GT sạch): **reprojection error** – tâm hình chiếu cuboid lệch box YOLO trung vị **8,1 px**
+(4,1 % đường chéo box, 1 581 cặp); **mismatch recall** như bảng trên. Chi tiết: [EVALUATION.md – 1b](docs/EVALUATION.md#1b-chỉ-số-của-đề-m44-reprojection-error-và-mismatch-recall).
+
 ## Bắt đầu nhanh
 
 Cần Windows 10/11, **Python 3.11**, **Node.js 20+** và **nuScenes-mini** (~4 GB, tải miễn phí tại

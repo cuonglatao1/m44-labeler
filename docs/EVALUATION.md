@@ -15,6 +15,28 @@ Toàn bộ số liệu của M44 Labeler, cách đo và cách chạy lại. Tóm
 - **Luật chấm "đúng"** (giống pilot của M44): tâm lệch ≤ 0,7 m, mỗi cạnh lệch ≤ 25 %, hướng lệch ≤ 20° (mod 180°,
   bỏ qua với người); "lệch nhẹ" = đúng vật trong vòng 2 m.
 
+## 1b. Chỉ số của đề M44: reprojection error và mismatch recall
+
+**Reprojection error** – `python -m labeler.eval_reprojection --split val`: trên GT sạch của mini val (81 frame), mỗi
+cuboid được chiếu lên camera và ghép với box YOLO (cấu hình `configs/tuned.json`); đo độ lệch tâm hình chiếu ↔ box
+(px), độ lệch so với đường chéo box (rel) và IoU.
+
+| | cặp | lệch tâm trung vị | lệch tâm p90 | rel trung vị | IoU trung vị |
+|---|---|---|---|---|---|
+| **tất cả** | **1581** | **8,1 px** | **25,6 px** | **4,1 %** | **0,69** |
+| 0–20 m | 963 | 11,3 px | 31,1 px | 3,7 % | 0,69 |
+| 20–35 m | 467 | 5,4 px | 13,3 px | 4,4 % | 0,69 |
+| 35–50 m | 151 | 3,5 px | 9,2 px | 4,8 % | 0,74 |
+| car | 750 | 9,3 px | 28,8 px | 3,5 % | 0,75 |
+| pedestrian | 661 | 6,9 px | 18,6 px | 5,0 % | 0,58 |
+
+Phần lệch này gồm cả sai số của YOLO (box 2D ôm sát phần nhìn thấy, cuboid gồm cả phần bị che). Riêng phép chiếu của
+tool khớp box 2D mà mmdet3d tính sẵn từ cùng nhãn: IoU trung vị 0,949, 96 % cặp ≥ 0,9 (`tests/test_projection.py`). Cờ
+camera trên GT sạch: 2,48 / frame.
+
+**Mismatch recall** (tỉ lệ lỗi cài bị cờ, mục 3): chỉ camera bắt 67 % lỗi trên cuboid camera kiểm được và 4 % trên cuboid
+camera không kiểm được; M44 Labeler (camera + LiDAR + thời gian) bắt 100 % và 99 %.
+
 ## 2. Kiểm tra trên dữ liệu mới (146 scene val nuScenes)
 
 Tool **đóng băng** ở commit `0a2e424` (bản v1) rồi chạy **một lần**. Chỉ dùng gói metadata (nhãn + vị trí xe), nên đo
@@ -206,6 +228,7 @@ Trong thư mục `backend` (`NUSC_ROOT` trỏ tới nuScenes-mini):
 ```bash
 python -m labeler.calib_lidar --split train                                   # ngưỡng LiDAR + thời gian (~6 phút)
 python -m labeler.calib_lidar --annotations-from D:/data/nuscenes-trainval    # v2: kích thước + chồng nhau
+python -m labeler.eval_reprojection --split val                            # mục 1b
 python -m labeler.eval_lidar --split val [--no-instance] [--errors subtle]  # mục 3, 3c, 4
 python -m labeler.eval_heldout --nusc-root D:/data/nuscenes-trainval [--no-instance] [--errors subtle]   # mục 2, 3c
 python -m labeler.eval_propagate --split val [--chain 5]                      # mục 5
